@@ -18,7 +18,7 @@ services:
   spring-ai-agentic:
     build:
       context: ./spring-ai-agentic
-      dockerfile: Dockerfile.native
+      dockerfile: Dockerfile
     ports:
       - "8081:8081"
     env_file: .env
@@ -28,7 +28,7 @@ services:
   spring-ai-neo4j-graph:
     build:
       context: ./spring-ai-neo4j-graph
-      dockerfile: Dockerfile.native
+      dockerfile: Dockerfile
     ports:
       - "8082:8082"
     env_file: .env
@@ -40,7 +40,7 @@ services:
   spring-ai-corrective:
     build:
       context: ./spring-ai-corrective
-      dockerfile: Dockerfile.native
+      dockerfile: Dockerfile
     ports:
       - "8083:8083"
     env_file: .env
@@ -50,7 +50,7 @@ services:
   spring-ai-multimodal:
     build:
       context: ./spring-ai-multimodal
-      dockerfile: Dockerfile.native
+      dockerfile: Dockerfile
     ports:
       - "8084:8084"
     env_file: .env
@@ -60,7 +60,7 @@ services:
   spring-ai-hierarchical:
     build:
       context: ./spring-ai-hierarchical
-      dockerfile: Dockerfile.native
+      dockerfile: Dockerfile
     ports:
       - "8085:8085"
     env_file: .env

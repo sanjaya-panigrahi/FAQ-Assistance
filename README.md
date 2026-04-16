@@ -69,8 +69,8 @@ npm install
 npm run build
 ```
 
-## Notes on startup speed and optimization
+## Notes on startup and Dockerfiles
 
-- Every service includes a `Dockerfile.native` for GraalVM native image build and fast startup runtime.
-- Native runtime image uses distroless base and non-root user.
-- Layered build minimizes rebuild time by resolving dependencies separately.
+- `docker compose up --build` uses each backend service's `Dockerfile`, which performs the Maven build inside Docker.
+- `Dockerfile.native` is a runtime-only option and expects a prebuilt jar already present in `target/`.
+- The current backend images use a multi-stage build to compile and then run the packaged Spring Boot jar.

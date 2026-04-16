@@ -9,14 +9,20 @@ const services = [
 ];
 
 const customerOptions = [
-  { value: "techstore", label: "techstore" },
   { value: "mytechstore", label: "mytechstore" },
+];
+
+const frameworkOptions = [
+  { value: "spring-ai", label: "Spring AI" },
+  { value: "langchain", label: "LangChain" },
+  { value: "langgraph", label: "LangGraph" },
 ];
 
 function App() {
   const [mode, setMode] = useState("compare");
   const [selectedServiceId, setSelectedServiceId] = useState("hierarchical");
-  const [customer, setCustomer] = useState("techstore");
+  const [framework, setFramework] = useState("spring-ai");
+  const [customer, setCustomer] = useState("mytechstore");
   const [question, setQuestion] = useState("What is your laptop return policy?");
   const [imageDescription, setImageDescription] = useState("");
   const [transcript, setTranscript] = useState([]);
@@ -124,6 +130,8 @@ function App() {
           id: crypto.randomUUID(),
           question: prompt,
           customer,
+          framework,
+          ragPattern: selectedService.label,
           mode,
           results,
         },
@@ -167,11 +175,9 @@ function App() {
     <div className="app-shell">
       <main className="workspace">
         <section className="hero-card">
-          <p className="eyebrow">Easy Customer Support</p>
           <h1>FAQ Assistant</h1>
           <p className="hero-copy">
-            Choose RAG pattern + framework, then run single-backend or compare-all-backends
-            from one UI.
+            Choose Mode + RAG pattern + Framework + Customer, then ask your query.
           </p>
         </section>
 
@@ -194,6 +200,17 @@ function App() {
                 {services.map((service) => (
                   <option key={service.id} value={service.id}>
                     {service.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label>
+              <span>Framework</span>
+              <select value={framework} onChange={(event) => setFramework(event.target.value)}>
+                {frameworkOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
                   </option>
                 ))}
               </select>
@@ -252,6 +269,12 @@ function App() {
               single-backend mode.
             </p>
           )}
+          {framework !== "spring-ai" && (
+            <p className="supporting-note">
+              Framework selection is captured in context. Current backend execution is powered by
+              Spring AI services.
+            </p>
+          )}
           {error && <p className="error-banner">{error}</p>}
         </section>
 
@@ -271,6 +294,15 @@ function App() {
               <section className="message-card user-card">
                 <p className="section-label">You</p>
                 <p className="message-text">{turn.question}</p>
+                <p className="result-latency">
+                  Mode: {turn.mode === "compare" ? "Compare all backends" : "Single backend"} | RAG:
+                  {" "}{turn.ragPattern}
+                  {" "}
+                  | Framework: {frameworkOptions.find((f) => f.value === turn.framework)?.label ||
+                    turn.framework}
+                  {" "}
+                  | Customer: {turn.customer}
+                </p>
               </section>
 
               <section className="message-card assistant-card">
