@@ -1,11 +1,11 @@
 import { useMemo, useRef, useState } from "react";
 
 const services = [
-  { id: "agentic", label: "Agentic RAG", url: "http://localhost:8081/api" },
-  { id: "graph", label: "Graph RAG", url: "http://localhost:8082/api" },
-  { id: "corrective", label: "Corrective RAG", url: "http://localhost:8083/api" },
-  { id: "multimodal", label: "Multimodal RAG", url: "http://localhost:8084/api" },
-  { id: "hierarchical", label: "Hierarchical RAG", url: "http://localhost:8085/api" },
+  { id: "agentic", label: "Agentic RAG", url: "http://localhost:8081/api", framework: "spring-ai" },
+  { id: "graph", label: "Graph RAG", url: "http://localhost:8082/api", framework: "spring-ai" },
+  { id: "corrective", label: "Corrective RAG", url: "http://localhost:8083/api", framework: "spring-ai" },
+  { id: "multimodal", label: "Multimodal RAG", url: "http://localhost:8084/api", framework: "spring-ai" },
+  { id: "hierarchical", label: "Hierarchical RAG", url: "http://localhost:8085/api", framework: "spring-ai" },
 ];
 
 const customerOptions = [
@@ -37,8 +37,13 @@ function App() {
   );
 
   const activeServices = useMemo(() => {
-    return mode === "compare" ? services : [selectedService];
-  }, [mode, selectedService]);
+    return [selectedService];
+  }, [selectedService]);
+
+  const compareFrameworks = useMemo(
+    () => frameworkOptions.map((option) => ({ ...option, ragPattern: selectedService.label })),
+    [selectedService]
+  );
 
   const needsImageContext = mode === "compare" || selectedServiceId === "multimodal";
 
@@ -95,6 +100,7 @@ function App() {
       return {
         serviceId: service.id,
         serviceLabel: service.label,
+        frameworkLabel: frameworkOptions.find((option) => option.value === service.framework)?.label || "Spring AI",
         answer: data.answer || "No answer returned.",
         meta: normalizeMeta(service.id, data),
         latencyMs: Math.round(performance.now() - startedAt),
@@ -104,12 +110,27 @@ function App() {
       return {
         serviceId: service.id,
         serviceLabel: service.label,
+        frameworkLabel: frameworkOptions.find((option) => option.value === service.framework)?.label || "Spring AI",
         answer: requestError.message || "Unable to reach backend.",
         meta: [],
         latencyMs: Math.round(performance.now() - startedAt),
         status: "error",
       };
     }
+  }
+
+  function createCompareResults(baseResult) {
+    return compareFrameworks.map((frameworkOption) => ({
+      ...baseResult,
+      serviceId: `${baseResult.serviceId}-${frameworkOption.value}`,
+      serviceLabel: frameworkOption.label,
+      frameworkLabel: frameworkOption.label,
+      meta: [
+        { label: "RAG Pattern", value: selectedService.label },
+        { label: "Customer", value: customer },
+        ...baseResult.meta,
+      ],
+    }));
   }
 
   async function askQuestion(event) {
@@ -123,7 +144,8 @@ function App() {
     setError("");
 
     try {
-      const results = await Promise.all(activeServices.map((service) => runQuery(service, prompt)));
+      const baseResults = await Promise.all(activeServices.map((service) => runQuery(service, prompt)));
+      const results = mode === "compare" ? createCompareResults(baseResults[0]) : baseResults;
       setTranscript((currentTranscript) => [
         ...currentTranscript,
         {
@@ -205,16 +227,18 @@ function App() {
               </select>
             </label>
 
-            <label>
-              <span>Framework</span>
-              <select value={framework} onChange={(event) => setFramework(event.target.value)}>
-                {frameworkOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {mode !== "compare" && (
+              <label>
+                <span>Framework</span>
+                <select value={framework} onChange={(event) => setFramework(event.target.value)}>
+                  {frameworkOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
 
             <label>
               <span>Customer</span>
@@ -265,11 +289,10 @@ function App() {
           {uploadedFaqName && <p className="supporting-note">Selected FAQ file: {uploadedFaqName}</p>}
           {mode === "compare" && (
             <p className="supporting-note">
-              Compare mode runs all five backends in parallel. The RAG Pattern selector is used for
-              single-backend mode.
+              Compare mode shows the selected RAG pattern for all frameworks for the selected customer.
             </p>
           )}
-          {framework !== "spring-ai" && (
+          {mode !== "compare" && framework !== "spring-ai" && (
             <p className="supporting-note">
               Framework selection is captured in context. Current backend execution is powered by
               Spring AI services.
@@ -298,8 +321,9 @@ function App() {
                   Mode: {turn.mode === "compare" ? "Compare all backends" : "Single backend"} | RAG:
                   {" "}{turn.ragPattern}
                   {" "}
-                  | Framework: {frameworkOptions.find((f) => f.value === turn.framework)?.label ||
-                    turn.framework}
+                  | Framework: {turn.mode === "compare"
+                    ? "All frameworks"
+                    : frameworkOptions.find((f) => f.value === turn.framework)?.label || turn.framework}
                   {" "}
                   | Customer: {turn.customer}
                 </p>
@@ -310,7 +334,7 @@ function App() {
                 <div className={turn.results.length > 1 ? "result-grid" : "result-grid single-column"}>
                   {turn.results.map((result) => (
                     <div key={result.serviceId} className={`result-card ${result.status}`}>
-                      <h3>{result.serviceLabel}</h3>
+                      <h3>{result.frameworkLabel || result.serviceLabel}</h3>
                       <p className="result-answer">{result.answer}</p>
                       <p className="result-latency">Latency: {result.latencyMs} ms</p>
                       {result.meta.length > 0 && (
