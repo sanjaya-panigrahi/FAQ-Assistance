@@ -45,7 +45,7 @@ function App() {
     [selectedService]
   );
 
-  const needsImageContext = mode === "compare" || selectedServiceId === "multimodal";
+  const needsImageContext = selectedServiceId === "multimodal";
   const trimmedQuestion = question.trim();
   const hasQuestion = trimmedQuestion.length > 0;
   const hasTranscript = transcript.length > 0;
@@ -316,7 +316,7 @@ function App() {
           )}
           {!needsImageContext && (
             <p className="supporting-note">
-              Image context is enabled only for compare mode or the multimodal RAG pattern.
+              Image context is enabled only for the multimodal RAG pattern.
             </p>
           )}
           {mode !== "compare" && framework !== "spring-ai" && (
