@@ -144,6 +144,13 @@ input[type="text"] {
   color: var(--text);
 }
 
+input[type="text"]:disabled,
+select:disabled {
+  background: #f1f5f4;
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
 .image-context-field {
   margin-top: 12px;
 }

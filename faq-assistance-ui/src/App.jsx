@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const services = [
   { id: "agentic", label: "Agentic RAG", url: "http://localhost:8081/api", framework: "spring-ai" },
@@ -46,6 +46,28 @@ function App() {
   );
 
   const needsImageContext = mode === "compare" || selectedServiceId === "multimodal";
+  const trimmedQuestion = question.trim();
+  const hasQuestion = trimmedQuestion.length > 0;
+  const hasTranscript = transcript.length > 0;
+  const canAsk = !loading && hasQuestion;
+  const canExport = !loading && hasTranscript;
+  const canStartNewConversation = !loading && (hasTranscript || Boolean(error) || Boolean(uploadedFaqName));
+  const canUploadFaq = !loading;
+  const primaryActionLabel = loading
+    ? mode === "compare"
+      ? "Running compare..."
+      : "Running query..."
+    : mode === "compare"
+      ? "Compare all backends"
+      : "Run selected backend";
+
+  useEffect(() => {
+    if (!error) {
+      return;
+    }
+
+    setError("");
+  }, [question, imageDescription, mode, selectedServiceId, framework, customer]);
 
   function normalizeMeta(serviceId, data) {
     const metaEntries = [];
@@ -134,9 +156,8 @@ function App() {
   }
 
   async function askQuestion(event) {
-    event.preventDefault();
-    const prompt = question.trim();
-    if (!prompt || loading) {
+    event?.preventDefault();
+    if (!hasQuestion || loading) {
       return;
     }
 
@@ -144,13 +165,13 @@ function App() {
     setError("");
 
     try {
-      const baseResults = await Promise.all(activeServices.map((service) => runQuery(service, prompt)));
+      const baseResults = await Promise.all(activeServices.map((service) => runQuery(service, trimmedQuestion)));
       const results = mode === "compare" ? createCompareResults(baseResults[0]) : baseResults;
       setTranscript((currentTranscript) => [
         ...currentTranscript,
         {
           id: crypto.randomUUID(),
-          question: prompt,
+          question: trimmedQuestion,
           customer,
           framework,
           ragPattern: selectedService.label,
@@ -158,7 +179,6 @@ function App() {
           results,
         },
       ]);
-      setQuestion("");
     } catch (requestError) {
       setError(requestError.message || "Failed to run query.");
     } finally {
@@ -169,6 +189,7 @@ function App() {
   function startNewConversation() {
     setTranscript([]);
     setError("");
+    setUploadedFaqName("");
   }
 
   function exportTranscript() {
@@ -252,29 +273,30 @@ function App() {
             </label>
           </div>
 
-          {needsImageContext && (
-            <label className="image-context-field">
-              <span>Image Context</span>
-              <input
-                type="text"
-                value={imageDescription}
-                onChange={(event) => setImageDescription(event.target.value)}
-                placeholder="Optional description for multimodal comparisons"
-              />
-            </label>
-          )}
+          <label className="image-context-field">
+            <span>Image Context</span>
+            <input
+              type="text"
+              value={imageDescription}
+              onChange={(event) => setImageDescription(event.target.value)}
+              disabled={!needsImageContext}
+              placeholder={needsImageContext
+                ? "Optional description for multimodal comparisons"
+                : "Available for compare mode or multimodal RAG"}
+            />
+          </label>
 
           <div className="toolbar-actions">
-            <button className="accent-soft" onClick={askQuestion} disabled={loading || !question.trim()}>
-              {mode === "compare" ? "Compare all backends" : "Run selected backend"}
+            <button type="button" className="accent-soft" onClick={askQuestion} disabled={!canAsk}>
+              {primaryActionLabel}
             </button>
-            <button className="accent-solid" onClick={startNewConversation}>
+            <button type="button" className="accent-solid" onClick={startNewConversation} disabled={!canStartNewConversation}>
               Start New Conversation
             </button>
-            <button className="accent-solid" onClick={exportTranscript} disabled={!transcript.length}>
+            <button type="button" className="accent-solid" onClick={exportTranscript} disabled={!canExport}>
               Export Transcript
             </button>
-            <button className="accent-solid" onClick={() => fileInputRef.current?.click()}>
+            <button type="button" className="accent-solid" onClick={() => fileInputRef.current?.click()} disabled={!canUploadFaq}>
               Upload FAQ
             </button>
             <input
@@ -290,6 +312,11 @@ function App() {
           {mode === "compare" && (
             <p className="supporting-note">
               Compare mode shows the selected RAG pattern for all frameworks for the selected customer.
+            </p>
+          )}
+          {!needsImageContext && (
+            <p className="supporting-note">
+              Image context is enabled only for compare mode or the multimodal RAG pattern.
             </p>
           )}
           {mode !== "compare" && framework !== "spring-ai" && (
@@ -364,9 +391,7 @@ function App() {
             onChange={(event) => setQuestion(event.target.value)}
             placeholder="Ask a question, for example: What is your return policy?"
           />
-          <button type="submit" disabled={loading || !question.trim()}>
-            {loading ? "Running..." : "Send"}
-          </button>
+          <button type="submit" disabled={!canAsk}>{primaryActionLabel}</button>
         </form>
       </main>
     </div>
