@@ -1,0 +1,18 @@
+server:
+  port: 8085
+
+spring:
+  application:
+    name: spring-ai-hierarchical
+  ai:
+    openai:
+      api-key: ${OPENAI_API_KEY}
+      chat:
+        options:
+          model: ${SPRING_AI_OPENAI_CHAT_MODEL:gpt-4o-mini}
+      embedding:
+        options:
+          model: ${SPRING_AI_OPENAI_EMBEDDING_MODEL:text-embedding-3-small}
+
+faq:
+  source-file: ${FAQ_SOURCE_FILE:/opt/data/mytechstore-faq.md}

@@ -1,0 +1,166 @@
+:root {
+  --bg-start: #0f172a;
+  --bg-end: #1f2937;
+  --card: rgba(248, 250, 252, 0.92);
+  --text: #111827;
+  --muted: #4b5563;
+  --accent: #0ea5e9;
+  --accent-strong: #0284c7;
+  --error: #b91c1c;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "Space Grotesk", sans-serif;
+  background: linear-gradient(135deg, var(--bg-start), var(--bg-end));
+  color: var(--text);
+}
+
+.app-shell {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  overflow: hidden;
+}
+
+.glow {
+  position: absolute;
+  width: 280px;
+  height: 280px;
+  border-radius: 999px;
+  filter: blur(60px);
+  opacity: 0.55;
+  animation: drift 8s ease-in-out infinite alternate;
+}
+
+.glow-a {
+  top: -60px;
+  left: -40px;
+  background: #22d3ee;
+}
+
+.glow-b {
+  right: -50px;
+  bottom: -70px;
+  background: #f59e0b;
+}
+
+.panel {
+  position: relative;
+  z-index: 2;
+  width: min(860px, 100%);
+  background: var(--card);
+  border-radius: 20px;
+  padding: 24px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.9rem;
+}
+
+.subtitle {
+  margin-top: 6px;
+  color: var(--muted);
+}
+
+label {
+  display: block;
+  margin-top: 16px;
+  font-weight: 500;
+}
+
+select,
+textarea,
+input {
+  margin-top: 8px;
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 10px;
+  font: inherit;
+}
+
+.actions {
+  margin-top: 16px;
+  display: flex;
+  gap: 12px;
+}
+
+button {
+  border: 0;
+  border-radius: 10px;
+  padding: 10px 16px;
+  background: #334155;
+  color: #fff;
+  cursor: pointer;
+}
+
+.ask-btn {
+  background: linear-gradient(120deg, var(--accent), var(--accent-strong));
+}
+
+button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.answer-box {
+  margin-top: 18px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.answer-box p {
+  line-height: 1.5;
+}
+
+pre {
+  margin: 0;
+  margin-top: 12px;
+  padding: 10px;
+  background: #0f172a;
+  color: #e5e7eb;
+  border-radius: 8px;
+  font-family: "IBM Plex Mono", monospace;
+  overflow-x: auto;
+}
+
+.error {
+  color: var(--error);
+  margin-top: 10px;
+}
+
+@media (max-width: 720px) {
+  .panel {
+    padding: 18px;
+  }
+
+  h1 {
+    font-size: 1.5rem;
+  }
+
+  .actions {
+    flex-direction: column;
+  }
+}
+
+@keyframes drift {
+  from {
+    transform: translateY(0) scale(1);
+  }
+  to {
+    transform: translateY(-20px) scale(1.08);
+  }
+}
