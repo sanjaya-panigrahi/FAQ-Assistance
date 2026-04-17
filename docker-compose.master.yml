@@ -1,0 +1,282 @@
+version: '3.9'
+
+services:
+  # Spring AI Stack
+  neo4j-spring:
+    image: neo4j:5.24
+    container_name: neo4j-spring
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      NEO4J_AUTH: neo4j/neo4jpass
+      NEO4J_server_memory_heap_initial__size: 512m
+      NEO4J_server_memory_heap_max__size: 512m
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:7474"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    networks:
+      - faq-network
+
+  spring-ai-agentic:
+    build:
+      context: ./spring-ai-agentic
+    ports:
+      - "8081:8081"
+    env_file: .env
+    depends_on:
+      neo4j-spring:
+        condition: service_healthy
+    volumes:
+      - ./shared-data:/opt/data:ro
+    networks:
+      - faq-network
+
+  spring-ai-neo4j-graph:
+    build:
+      context: ./spring-ai-neo4j-graph
+    ports:
+      - "8082:8082"
+    env_file: .env
+    environment:
+      NEO4J_URI: bolt://neo4j-spring:7687
+    depends_on:
+      neo4j-spring:
+        condition: service_healthy
+    volumes:
+      - ./shared-data:/opt/data:ro
+    networks:
+      - faq-network
+
+  spring-ai-corrective:
+    build:
+      context: ./spring-ai-corrective
+    ports:
+      - "8083:8083"
+    env_file: .env
+    volumes:
+      - ./shared-data:/opt/data:ro
+    networks:
+      - faq-network
+
+  spring-ai-multimodal:
+    build:
+      context: ./spring-ai-multimodal
+    ports:
+      - "8084:8084"
+    env_file: .env
+    volumes:
+      - ./shared-data:/opt/data:ro
+    networks:
+      - faq-network
+
+  spring-ai-hierarchical:
+    build:
+      context: ./spring-ai-hierarchical
+    ports:
+      - "8085:8085"
+    env_file: .env
+    volumes:
+      - ./shared-data:/opt/data:ro
+    networks:
+      - faq-network
+
+  # LangChain Stack
+  neo4j-langchain:
+    image: neo4j:5.24
+    container_name: neo4j-langchain
+    ports:
+      - "7475:7474"
+      - "7688:7687"
+    environment:
+      NEO4J_AUTH: neo4j/neo4jpass
+      NEO4J_server_memory_heap_initial__size: 512m
+      NEO4J_server_memory_heap_max__size: 512m
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:7474"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    networks:
+      - faq-network
+
+  langchain-agentic:
+    build:
+      context: ./langchain-agentic
+    ports:
+      - "8181:8000"
+    env_file: .env
+    environment:
+      APP_PORT: 8000
+    depends_on:
+      neo4j-langchain:
+        condition: service_healthy
+    volumes:
+      - ./shared-data:/opt/data:ro
+    networks:
+      - faq-network
+
+  langchain-neo4j-graph:
+    build:
+      context: ./langchain-neo4j-graph
+    ports:
+      - "8182:8000"
+    env_file: .env
+    environment:
+      APP_PORT: 8000
+      NEO4J_URI: bolt://neo4j-langchain:7687
+    depends_on:
+      neo4j-langchain:
+        condition: service_healthy
+    volumes:
+      - ./shared-data:/opt/data:ro
+    networks:
+      - faq-network
+
+  langchain-corrective:
+    build:
+      context: ./langchain-corrective
+    ports:
+      - "8183:8000"
+    env_file: .env
+    environment:
+      APP_PORT: 8000
+    volumes:
+      - ./shared-data:/opt/data:ro
+    networks:
+      - faq-network
+
+  langchain-multimodal:
+    build:
+      context: ./langchain-multimodal
+    ports:
+      - "8184:8000"
+    env_file: .env
+    environment:
+      APP_PORT: 8000
+    volumes:
+      - ./shared-data:/opt/data:ro
+    networks:
+      - faq-network
+
+  langchain-hierarchical:
+    build:
+      context: ./langchain-hierarchical
+    ports:
+      - "8185:8000"
+    env_file: .env
+    environment:
+      APP_PORT: 8000
+    volumes:
+      - ./shared-data:/opt/data:ro
+    networks:
+      - faq-network
+
+  # LangGraph Stack
+  neo4j-langgraph:
+    image: neo4j:5.24
+    container_name: neo4j-langgraph
+    ports:
+      - "7476:7474"
+      - "7689:7687"
+    environment:
+      NEO4J_AUTH: neo4j/neo4jpass
+      NEO4J_server_memory_heap_initial__size: 512m
+      NEO4J_server_memory_heap_max__size: 512m
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:7474"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    networks:
+      - faq-network
+
+  langgraph-agentic:
+    build:
+      context: ./langgraph-agentic
+    ports:
+      - "8281:8000"
+    env_file: .env
+    environment:
+      APP_PORT: 8000
+    volumes:
+      - ./shared-data:/opt/data:ro
+    networks:
+      - faq-network
+
+  langgraph-neo4j-graph:
+    build:
+      context: ./langgraph-neo4j-graph
+    ports:
+      - "8282:8000"
+    env_file: .env
+    environment:
+      APP_PORT: 8000
+      NEO4J_URI: bolt://neo4j-langgraph:7687
+    depends_on:
+      neo4j-langgraph:
+        condition: service_healthy
+    volumes:
+      - ./shared-data:/opt/data:ro
+    networks:
+      - faq-network
+
+  langgraph-corrective:
+    build:
+      context: ./langgraph-corrective
+    ports:
+      - "8283:8000"
+    env_file: .env
+    environment:
+      APP_PORT: 8000
+    volumes:
+      - ./shared-data:/opt/data:ro
+    networks:
+      - faq-network
+
+  langgraph-multimodal:
+    build:
+      context: ./langgraph-multimodal
+    ports:
+      - "8284:8000"
+    env_file: .env
+    environment:
+      APP_PORT: 8000
+    volumes:
+      - ./shared-data:/opt/data:ro
+    networks:
+      - faq-network
+
+  langgraph-hierarchical:
+    build:
+      context: ./langgraph-hierarchical
+    ports:
+      - "8285:8000"
+    env_file: .env
+    environment:
+      APP_PORT: 8000
+    volumes:
+      - ./shared-data:/opt/data:ro
+    networks:
+      - faq-network
+
+  # React UI - connects to all three stacks
+  faq-ui:
+    build:
+      context: ./faq-assistance-ui
+    ports:
+      - "5173:5173"
+    depends_on:
+      - spring-ai-agentic
+      - langchain-agentic
+      - langgraph-agentic
+    networks:
+      - faq-network
+    environment:
+      VITE_API_HOST: localhost
+
+networks:
+  faq-network:
+    driver: bridge

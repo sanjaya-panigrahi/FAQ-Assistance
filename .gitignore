@@ -33,3 +33,9 @@ dist/
 # Env files
 .env
 .env.example
+.env.langchain
+.env.langchain.example
+.env.langgraph
+.env.langgraph.example
+
+*.md

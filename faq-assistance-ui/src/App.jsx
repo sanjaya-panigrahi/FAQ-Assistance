@@ -1,12 +1,41 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 const services = [
-  { id: "agentic", label: "Agentic RAG", url: "http://localhost:8081/api", framework: "spring-ai" },
-  { id: "graph", label: "Graph RAG", url: "http://localhost:8082/api", framework: "spring-ai" },
-  { id: "corrective", label: "Corrective RAG", url: "http://localhost:8083/api", framework: "spring-ai" },
-  { id: "multimodal", label: "Multimodal RAG", url: "http://localhost:8084/api", framework: "spring-ai" },
-  { id: "hierarchical", label: "Hierarchical RAG", url: "http://localhost:8085/api", framework: "spring-ai" },
+  { id: "agentic",    label: "Agentic RAG" },
+  { id: "graph",      label: "Graph RAG" },
+  { id: "corrective", label: "Corrective RAG" },
+  { id: "multimodal", label: "Multimodal RAG" },
+  { id: "hierarchical", label: "Hierarchical RAG" },
 ];
+
+// Base URLs keyed by [framework][serviceId]
+const serviceUrls = {
+  "spring-ai": {
+    agentic:      "http://localhost:8081/api",
+    graph:        "http://localhost:8082/api",
+    corrective:   "http://localhost:8083/api",
+    multimodal:   "http://localhost:8084/api",
+    hierarchical: "http://localhost:8085/api",
+  },
+  langchain: {
+    agentic:      "http://localhost:8181/api",
+    graph:        "http://localhost:8182/api",
+    corrective:   "http://localhost:8183/api",
+    multimodal:   "http://localhost:8184/api",
+    hierarchical: "http://localhost:8185/api",
+  },
+  langgraph: {
+    agentic:      "http://localhost:8281/api",
+    graph:        "http://localhost:8282/api",
+    corrective:   "http://localhost:8283/api",
+    multimodal:   "http://localhost:8284/api",
+    hierarchical: "http://localhost:8285/api",
+  },
+};
+
+function resolveUrl(frameworkValue, serviceId) {
+  return serviceUrls[frameworkValue]?.[serviceId] ?? serviceUrls["spring-ai"][serviceId];
+}
 
 const customerOptions = [
   { value: "mytechstore", label: "mytechstore" },
@@ -40,8 +69,14 @@ function App() {
     return [selectedService];
   }, [selectedService]);
 
+  // In compare mode each framework gets its own real backend URL for the selected pattern.
   const compareFrameworks = useMemo(
-    () => frameworkOptions.map((option) => ({ ...option, ragPattern: selectedService.label })),
+    () =>
+      frameworkOptions.map((option) => ({
+        ...option,
+        ragPattern: selectedService.label,
+        url: resolveUrl(option.value, selectedService.id),
+      })),
     [selectedService]
   );
 
@@ -100,14 +135,16 @@ function App() {
     return metaEntries;
   }
 
-  async function runQuery(service, prompt) {
+  async function runQuery(service, prompt, overrideUrl) {
     const startedAt = performance.now();
     const payload = service.id === "multimodal"
       ? { question: prompt, imageDescription }
       : { question: prompt };
 
+    const baseUrl = overrideUrl ?? resolveUrl(framework, service.id);
+
     try {
-      const response = await fetch(`${service.url}/query/ask`, {
+      const response = await fetch(`${baseUrl}/query/ask`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -122,7 +159,7 @@ function App() {
       return {
         serviceId: service.id,
         serviceLabel: service.label,
-        frameworkLabel: frameworkOptions.find((option) => option.value === service.framework)?.label || "Spring AI",
+        frameworkLabel: frameworkOptions.find((option) => option.value === framework)?.label || "Spring AI",
         answer: data.answer || "No answer returned.",
         meta: normalizeMeta(service.id, data),
         latencyMs: Math.round(performance.now() - startedAt),
@@ -132,7 +169,7 @@ function App() {
       return {
         serviceId: service.id,
         serviceLabel: service.label,
-        frameworkLabel: frameworkOptions.find((option) => option.value === service.framework)?.label || "Spring AI",
+        frameworkLabel: frameworkOptions.find((option) => option.value === framework)?.label || "Spring AI",
         answer: requestError.message || "Unable to reach backend.",
         meta: [],
         latencyMs: Math.round(performance.now() - startedAt),
@@ -141,18 +178,51 @@ function App() {
     }
   }
 
-  function createCompareResults(baseResult) {
-    return compareFrameworks.map((frameworkOption) => ({
-      ...baseResult,
-      serviceId: `${baseResult.serviceId}-${frameworkOption.value}`,
-      serviceLabel: frameworkOption.label,
-      frameworkLabel: frameworkOption.label,
-      meta: [
-        { label: "RAG Pattern", value: selectedService.label },
-        { label: "Customer", value: customer },
-        ...baseResult.meta,
-      ],
-    }));
+  async function runCompare(prompt) {
+    // Fire all three framework backends in parallel for the selected RAG pattern.
+    return Promise.all(
+      compareFrameworks.map(async (fw) => {
+        const startedAt = performance.now();
+        const payload = selectedService.id === "multimodal"
+          ? { question: prompt, imageDescription }
+          : { question: prompt };
+        try {
+          const response = await fetch(`${fw.url}/query/ask`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.message || `Status ${response.status}`);
+          return {
+            serviceId: `${selectedService.id}-${fw.value}`,
+            serviceLabel: fw.label,
+            frameworkLabel: fw.label,
+            answer: data.answer || "No answer returned.",
+            meta: [
+              { label: "RAG Pattern", value: selectedService.label },
+              { label: "Customer", value: customer },
+              ...normalizeMeta(selectedService.id, data),
+            ],
+            latencyMs: Math.round(performance.now() - startedAt),
+            status: "success",
+          };
+        } catch (err) {
+          return {
+            serviceId: `${selectedService.id}-${fw.value}`,
+            serviceLabel: fw.label,
+            frameworkLabel: fw.label,
+            answer: err.message || "Unable to reach backend.",
+            meta: [
+              { label: "RAG Pattern", value: selectedService.label },
+              { label: "Customer", value: customer },
+            ],
+            latencyMs: Math.round(performance.now() - startedAt),
+            status: "error",
+          };
+        }
+      })
+    );
   }
 
   async function askQuestion(event) {
@@ -165,8 +235,9 @@ function App() {
     setError("");
 
     try {
-      const baseResults = await Promise.all(activeServices.map((service) => runQuery(service, trimmedQuestion)));
-      const results = mode === "compare" ? createCompareResults(baseResults[0]) : baseResults;
+      const results = mode === "compare"
+        ? await runCompare(trimmedQuestion)
+        : await Promise.all(activeServices.map((service) => runQuery(service, trimmedQuestion)));
       setTranscript((currentTranscript) => [
         ...currentTranscript,
         {
@@ -319,10 +390,10 @@ function App() {
               Image context is enabled only for the multimodal RAG pattern.
             </p>
           )}
-          {mode !== "compare" && framework !== "spring-ai" && (
+          {mode !== "compare" && (
             <p className="supporting-note">
-              Framework selection is captured in context. Current backend execution is powered by
-              Spring AI services.
+              Framework is set to <strong>{frameworkOptions.find((f) => f.value === framework)?.label}</strong>. 
+              API requests are routed to the corresponding backend ({framework === "spring-ai" ? "ports 8081-8085" : framework === "langchain" ? "ports 8181-8185" : "ports 8281-8285"}).
             </p>
           )}
           {error && <p className="error-banner">{error}</p>}
