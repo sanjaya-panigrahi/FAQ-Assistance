@@ -11,8 +11,14 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
+
+import jakarta.annotation.PreDestroy;
 
 import com.mytechstore.hier.dto.RagResponse;
 
@@ -36,8 +42,16 @@ public class StructuredPipelineService {
     private final ChatClient chatClient;
     private final String sourceFile;
     private final AtomicBoolean indexed = new AtomicBoolean(false);
+    private final AtomicBoolean indexing = new AtomicBoolean(false);
     private final List<String> sectionHeaders = new ArrayList<>();
+    private final ExecutorService rebuildExecutor = Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "structured-pipeline-rebuild");
+        thread.setDaemon(true);
+        return thread;
+    });
     private volatile List<Document> faqEntries = List.of();
+    private volatile CompletableFuture<String> rebuildTask;
+    private volatile String indexedCorpusSignature = "";
 
     public StructuredPipelineService(VectorStore vectorStore,
                                      ChatClient chatClient,
@@ -49,42 +63,42 @@ public class StructuredPipelineService {
 
     public synchronized String rebuildIndex() {
         List<Document> docs = parseFaqDocuments();
-        vectorStore.add(docs);
-        faqEntries = docs;
+        String corpusSignature = corpusSignature(docs);
 
-        sectionHeaders.clear();
-        docs.stream()
-                .map(document -> document.getMetadata().get("section"))
-                .filter(String.class::isInstance)
-                .map(String.class::cast)
-                .distinct()
-                .forEach(sectionHeaders::add);
+        if (indexed.get() && corpusSignature.equals(indexedCorpusSignature) && !indexing.get()) {
+            refreshStructuredState(docs);
+            return "Index already up to date for " + docs.size() + " FAQ entries";
+        }
+        if (indexing.get()) {
+            return "Index rebuild already in progress";
+        }
 
-        indexed.set(true);
-        return "Indexed " + docs.size() + " FAQ entries and " + sectionHeaders.size() + " structured sections";
+        scheduleRebuild(docs, corpusSignature);
+        return indexed.get() ? "Index rebuild started for " + docs.size() + " FAQ entries"
+                : "Initial index build started for " + docs.size() + " FAQ entries";
     }
 
     public RagResponse ask(String question) {
-        if (!indexed.get()) {
-            rebuildIndex();
-        }
+        awaitIndexReady();
 
-        String lower = question == null ? "" : question.toLowerCase();
-        String selectedSection = sectionHeaders.stream()
-                .filter(h -> lower.contains(firstWord(h).toLowerCase()))
-                .findFirst()
-                .orElse("General FAQ");
+        String selectedSection = selectSection(question);
 
         List<Document> hits = retrieveRelevantDocuments(question + " " + selectedSection, 4);
         String context = hits.stream().map(Document::getText).collect(Collectors.joining("\n\n"));
 
         String prompt = "You are hierarchical RAG assistant for MyTechStore. "
                 + "Section selected: " + selectedSection + ". "
-                + "Answer only from context. If the context provides a general policy and no product-specific exception, use the general policy.\n\n"
+            + "Answer only from context. If the context provides a general policy and no product-specific exception, use the general policy. "
+            + "Keep the answer concise and do not add unrelated policy notes or website references.\n\n"
                 + "Context:\n" + context + "\n\nQuestion: " + question;
         String answer = chatClient.prompt().user(prompt).call().content();
 
         return new RagResponse(answer, selectedSection, hits.size());
+    }
+
+    @PreDestroy
+    void shutdownExecutor() {
+        rebuildExecutor.shutdownNow();
     }
 
     private List<Document> parseFaqDocuments() {
@@ -132,6 +146,70 @@ public class StructuredPipelineService {
         } catch (IOException ex) {
             throw new IllegalStateException("Failed to read FAQ source file: " + sourceFile, ex);
         }
+    }
+
+    private void awaitIndexReady() {
+        if (indexed.get()) {
+            return;
+        }
+
+        CompletableFuture<String> taskToWaitFor;
+        synchronized (this) {
+            if (indexed.get()) {
+                return;
+            }
+            if (!indexing.get()) {
+                List<Document> docs = parseFaqDocuments();
+                scheduleRebuild(docs, corpusSignature(docs));
+            }
+            taskToWaitFor = rebuildTask;
+        }
+
+        if (taskToWaitFor == null) {
+            throw new IllegalStateException("Index rebuild task was not created");
+        }
+
+        try {
+            taskToWaitFor.get();
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while waiting for index rebuild", ex);
+        } catch (ExecutionException ex) {
+            throw new IllegalStateException("Failed to rebuild FAQ index", ex.getCause());
+        }
+    }
+
+    private void scheduleRebuild(List<Document> docs, String corpusSignature) {
+        indexing.set(true);
+        rebuildTask = CompletableFuture.supplyAsync(() -> doRebuildIndex(docs, corpusSignature), rebuildExecutor)
+                .whenComplete((result, error) -> indexing.set(false));
+    }
+
+    private String doRebuildIndex(List<Document> docs, String corpusSignature) {
+        vectorStore.add(docs);
+        synchronized (this) {
+            refreshStructuredState(docs);
+            indexedCorpusSignature = corpusSignature;
+            indexed.set(true);
+        }
+        return "Indexed " + docs.size() + " FAQ entries and " + sectionHeaders.size() + " structured sections";
+    }
+
+    private void refreshStructuredState(List<Document> docs) {
+        faqEntries = docs;
+        sectionHeaders.clear();
+        docs.stream()
+                .map(document -> document.getMetadata().get("section"))
+                .filter(String.class::isInstance)
+                .map(String.class::cast)
+                .distinct()
+                .forEach(sectionHeaders::add);
+    }
+
+    private String corpusSignature(List<Document> docs) {
+        return docs.stream()
+                .map(Document::getText)
+                .collect(Collectors.joining("\n---\n"));
     }
 
     private int addFaqDocument(List<Document> documents, int faqId, String section, String question, StringBuilder answerBuilder) {
@@ -215,6 +293,58 @@ public class StructuredPipelineService {
 
     private String normalize(String value) {
         return value == null ? "" : value.toLowerCase().replaceAll("[^a-z0-9 ]", " ").replaceAll("\\s+", " ").trim();
+    }
+
+    private String selectSection(String question) {
+        String lower = normalize(question);
+
+        String section = findSection(lower,
+                List.of("return", "refund", "replace", "defect"),
+                List.of("Returns, Refunds, and Replacements", "Returns and Warranty"));
+        if (section != null) {
+            return section;
+        }
+
+        section = findSection(lower,
+                List.of("warranty", "damage", "protection", "repair"),
+                List.of("Warranty and Protection Plans", "Returns and Warranty"));
+        if (section != null) {
+            return section;
+        }
+
+        section = findSection(lower,
+                List.of("shipping", "delivery", "track", "pickup", "order status"),
+                List.of("Shipping and Delivery Details", "Shipping and Delivery"));
+        if (section != null) {
+            return section;
+        }
+
+        section = findSection(lower,
+                List.of("order", "checkout", "cancel", "invoice", "payment"),
+                List.of("Orders and Checkout", "Pricing and Payments"));
+        if (section != null) {
+            return section;
+        }
+
+        section = findSection(lower,
+                List.of("branch", "store", "support", "contact"),
+                List.of("In-Store Services and Branch Support", "Branches and Support", "Support and Policies"));
+        if (section != null) {
+            return section;
+        }
+
+        return sectionHeaders.stream()
+                .filter(h -> lower.contains(firstWord(h).toLowerCase()))
+                .findFirst()
+                .orElse("General FAQ");
+    }
+
+    private String findSection(String lower, List<String> keywords, List<String> candidates) {
+        boolean matches = keywords.stream().anyMatch(lower::contains);
+        if (!matches) {
+            return null;
+        }
+        return candidates.stream().filter(sectionHeaders::contains).findFirst().orElse(null);
     }
 
     private String firstWord(String text) {

@@ -1,9 +1,9 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class VisionRagRequest(BaseModel):
-    question: str
-    imageDescription: str = ""
+    question: str = Field(min_length=1, max_length=500)
+    imageDescription: str = Field(default="", max_length=1000)
 
 
 class VisionRagResponse(BaseModel):

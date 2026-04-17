@@ -1,4 +1,12 @@
 package com.mytechstore.vision.dto;
 
-public record VisionRagRequest(String question, String imageDescription) {
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
+
+public record VisionRagRequest(
+        @NotBlank(message = "question must not be blank")
+        @Size(max = 500, message = "question must be 500 characters or fewer")
+        String question,
+        @Size(max = 1000, message = "imageDescription must be 1000 characters or fewer")
+        String imageDescription) {
 }
