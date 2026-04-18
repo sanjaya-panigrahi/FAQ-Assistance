@@ -1,0 +1,99 @@
+version: '3.9'
+name: ${FAQ_INGESTION_COMPOSE_PROJECT:-faq-ingestion}
+
+services:
+  # ChromaDB - Vector Database for FAQ embeddings
+  chroma:
+    image: ${FAQ_CHROMA_IMAGE:-chromadb/chroma:0.5.23}
+    ports:
+      - "${FAQ_CHROMA_PORT:-8000}:8000"
+    volumes:
+      - chroma_faq_data:/data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bash",
+          "-lc",
+          "(exec 3<>/dev/tcp/localhost/8000 && printf 'GET /api/v2/heartbeat HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3) || (exec 4<>/dev/tcp/localhost/8000 && printf 'GET /api/v1/heartbeat HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&4 && grep -q '200 OK' <&4)",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - faq-network
+    restart: unless-stopped
+
+  # Spring AI FAQ Ingestion Service
+  faq-ingestion:
+    build:
+      context: ./spring-ai-faq-ingestion
+      dockerfile: Dockerfile
+    ports:
+      - "${FAQ_INGESTION_PORT:-9000}:9000"
+    env_file: .env
+    depends_on:
+      chroma:
+        condition: service_healthy
+    
+    volumes:
+      # Persistent data directories
+      - faq_uploads:/app/uploads              # Original documents
+      - faq_chroma:/app/chroma_data           # ChromaDB vectors
+      - faq_metadata:/app/data                # H2 database
+    
+    networks:
+      - faq-network
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${FAQ_INGESTION_PORT:-9000}/api/faq-ingestion/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    restart: unless-stopped
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    
+    labels:
+      - "com.example.description=Spring AI FAQ Ingestion Service"
+      - "com.example.version=1.0.0"
+
+volumes:
+  chroma_faq_data:
+    driver: local
+  faq_uploads:
+    driver: local
+  faq_chroma:
+    driver: local
+  faq_metadata:
+    driver: local
+
+networks:
+  faq-network:
+    name: ${FAQ_INGESTION_NETWORK_NAME:-faq-ingestion-network}
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16
+
+# Usage:
+# 1. Set values in .env (OPENAI_API_KEY + FAQ ingestion config block)
+# 2. Start services: docker-compose up -d
+# 3. Check health: curl http://localhost:9000/api/faq-ingestion/health
+# 4. ChromaDB UI: http://localhost:8000
+# 5. API Info: curl http://localhost:9000/api/faq-ingestion/info
+
+# Notes:
+# - ChromaDB runs on port 8000 (vector management)
+# - FAQ Ingestion runs on port 9000 (REST API)
+# - All data is persisted in Docker volumes
+# - Service will restart automatically on failure
+# - Healthchecks ensure dependencies are ready

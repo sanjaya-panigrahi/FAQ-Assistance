@@ -24,6 +24,7 @@ export OPENAI_API_KEY="your-key-here"
 
 This script will:
 - ✓ Start all 3 stacks (15 services + 3 Neo4j instances)
+- ✓ Start FAQ ingestion services (ChromaDB + Spring ingestion API)
 - ✓ Wait for services to initialize
 - ✓ Rebuild FAQ indexes
 - ✓ Run health checks
@@ -164,6 +165,49 @@ make langgraph-up
 make langgraph-test
 make langgraph-down
 ```
+
+### FAQ Ingestion (Spring AI + Chroma) – Ports 9000 and 8000
+
+**Status**: Upload and indexing validated (April 18, 2026)
+
+**Services**:
+- `8000` – ChromaDB (`chroma-faq`)
+- `9000` – Spring AI FAQ ingestion API (`faq-ingestion`)
+
+**Primary Endpoints**:
+- `GET /api/faq-ingestion/health`
+- `POST /api/faq-ingestion/customers`
+- `POST /api/faq-ingestion/documents/upload`
+- `GET /api/faq-ingestion/customers/{customerId}/documents`
+- `POST /api/faq-ingestion/query`
+
+**Quick Commands**:
+```bash
+docker compose -f docker-compose.master.yml up -d chroma-faq faq-ingestion
+curl -s http://localhost:9000/api/faq-ingestion/health | jq .
+```
+
+### FAQ Ingestion Update (April 18, 2026)
+
+#### What Changed
+
+1. Chroma service configuration was aligned with the pinned image behavior.
+2. Ingestion service now forces HTTP/1.1 for Chroma requests.
+3. Collection operations now resolve and use collection UUID for add/query/delete/count routes.
+4. Indexing path now fails fast when add-to-Chroma fails, preventing false "COMPLETED" states.
+
+#### Why These Choices Were Chosen
+
+1. **Pinned Chroma image (`0.5.23`)** was kept for API stability across local runs and compose stacks.
+2. **Deprecated Chroma env settings were removed** because they caused startup failures in this image line.
+3. **UUID-based collection routes were adopted** because Chroma v1 add/query/delete/count expect collection ID, not collection name.
+4. **HTTP/1.1 was forced in Java HttpClient** because it removed intermittent malformed request failures observed during create/add calls.
+5. **Fail-fast indexing was enforced** so ingestion status accurately reflects real indexing outcomes.
+
+#### Current Known Limitation
+
+- Document upload and indexing are now working.
+- Query can still return empty sources until query-result parsing and embedding/query payload handling are completed in the ingestion service.
 
 ---
 
@@ -307,9 +351,11 @@ FAQ-Assistance/
 ├── docker-compose.yml              # Spring AI
 ├── docker-compose.langchain.yml    # LangChain
 ├── docker-compose.langgraph.yml    # LangGraph
+├── docker-compose.faq-ingestion.yml # FAQ ingestion (standalone)
 ├── shared-data/
 │   └── mytechstore-faq.md
 ├── spring-ai-{agentic,neo4j-graph,...}/
+├── spring-ai-faq-ingestion/
 ├── langchain-{agentic,neo4j-graph,...}/
 ├── langgraph-{agentic,neo4j-graph,...}/
 └── faq-assistance-ui/

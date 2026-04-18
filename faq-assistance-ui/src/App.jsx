@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
+const ingestionApiUrl = "http://localhost:9000/api/faq-ingestion";
+const fallbackCustomers = [
+  { customerId: "mytechstore", name: "mytechstore" },
+];
+
 const services = [
   { id: "agentic",    label: "Agentic RAG" },
   { id: "graph",      label: "Graph RAG" },
@@ -37,10 +42,6 @@ function resolveUrl(frameworkValue, serviceId) {
   return serviceUrls[frameworkValue]?.[serviceId] ?? serviceUrls["spring-ai"][serviceId];
 }
 
-const customerOptions = [
-  { value: "mytechstore", label: "mytechstore" },
-];
-
 const frameworkOptions = [
   { value: "spring-ai", label: "Spring AI" },
   { value: "langchain", label: "LangChain" },
@@ -52,13 +53,27 @@ function App() {
   const [selectedServiceId, setSelectedServiceId] = useState("hierarchical");
   const [framework, setFramework] = useState("spring-ai");
   const [customer, setCustomer] = useState("mytechstore");
+  const [customers, setCustomers] = useState(fallbackCustomers);
   const [question, setQuestion] = useState("What is your laptop return policy?");
   const [imageDescription, setImageDescription] = useState("");
   const [uploadedImage, setUploadedImage] = useState(null);
   const [transcript, setTranscript] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [uploadingFaq, setUploadingFaq] = useState(false);
+  const [customerBusy, setCustomerBusy] = useState(false);
   const [error, setError] = useState("");
   const [uploadedFaqName, setUploadedFaqName] = useState("");
+  const [selectedFaqFile, setSelectedFaqFile] = useState(null);
+  const [documentManagerOpen, setDocumentManagerOpen] = useState(false);
+  const [customerStatus, setCustomerStatus] = useState("Loading customers from the ingestion service...");
+  const [faqUploadStatus, setFaqUploadStatus] = useState("");
+  const [faqUploadResult, setFaqUploadResult] = useState(null);
+  const [customerDocuments, setCustomerDocuments] = useState([]);
+  const [documentsLoading, setDocumentsLoading] = useState(false);
+  const [documentsStatus, setDocumentsStatus] = useState("");
+  const [newCustomerId, setNewCustomerId] = useState("");
+  const [newCustomerName, setNewCustomerName] = useState("");
+  const [newCustomerDescription, setNewCustomerDescription] = useState("");
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
 
@@ -84,12 +99,16 @@ function App() {
 
   const needsImageContext = selectedServiceId === "multimodal";
   const trimmedQuestion = question.trim();
+  const trimmedCustomerId = customer.trim();
+  const trimmedNewCustomerId = newCustomerId.trim();
+  const trimmedNewCustomerName = newCustomerName.trim();
   const hasQuestion = trimmedQuestion.length > 0;
   const hasTranscript = transcript.length > 0;
-  const canAsk = !loading && hasQuestion;
+  const canAsk = !loading && !uploadingFaq && hasQuestion;
   const canExport = !loading && hasTranscript;
   const canStartNewConversation = !loading && (hasTranscript || Boolean(error) || Boolean(uploadedFaqName));
-  const canUploadFaq = !loading;
+  const canUploadFaq = !loading && !uploadingFaq && trimmedCustomerId.length > 0;
+  const canCreateCustomer = !customerBusy && trimmedNewCustomerId.length > 0 && trimmedNewCustomerName.length > 0;
   const primaryActionLabel = loading
     ? mode === "compare"
       ? "Running compare..."
@@ -97,6 +116,84 @@ function App() {
     : mode === "compare"
       ? "Compare all backends"
       : "Run selected backend";
+
+  async function parseResponse(response) {
+    const contentType = response.headers.get("content-type") || "";
+
+    if (contentType.includes("application/json")) {
+      return response.json();
+    }
+
+    const text = await response.text();
+    return text ? { message: text } : {};
+  }
+
+  async function loadCustomers(preferredCustomerId) {
+    try {
+      const response = await fetch(`${ingestionApiUrl}/customers`);
+      const data = await parseResponse(response);
+
+      if (!response.ok) {
+        throw new Error(data.message || `Unable to load customers (${response.status})`);
+      }
+
+      if (!Array.isArray(data) || data.length === 0) {
+        setCustomers(fallbackCustomers);
+        setCustomer((currentCustomer) => currentCustomer || fallbackCustomers[0].customerId);
+        setCustomerStatus("Ingestion service is reachable, but no customers exist yet. Create one below.");
+        return;
+      }
+
+      const nextCustomers = data.map((entry) => ({
+        customerId: entry.customerId,
+        name: entry.name || entry.customerId,
+      }));
+
+      setCustomers(nextCustomers);
+      setCustomer((currentCustomer) => {
+        const targetCustomerId = preferredCustomerId || currentCustomer;
+        return nextCustomers.some((entry) => entry.customerId === targetCustomerId)
+          ? targetCustomerId
+          : nextCustomers[0].customerId;
+      });
+      setCustomerStatus(`Loaded ${nextCustomers.length} customer${nextCustomers.length === 1 ? "" : "s"} from the ingestion service.`);
+    } catch (requestError) {
+      setCustomers(fallbackCustomers);
+      setCustomerStatus(requestError.message || "Could not reach the ingestion service. Using the local fallback customer list.");
+    }
+  }
+
+  async function loadCustomerDocuments(customerIdToLoad = trimmedCustomerId) {
+    if (!customerIdToLoad) {
+      setCustomerDocuments([]);
+      setDocumentsStatus("Select a customer to inspect indexed FAQ documents.");
+      return;
+    }
+
+    setDocumentsLoading(true);
+
+    try {
+      const response = await fetch(`${ingestionApiUrl}/customers/${customerIdToLoad}/documents`);
+      const data = await parseResponse(response);
+
+      if (!response.ok) {
+        throw new Error(data.message || `Unable to load documents (${response.status})`);
+      }
+
+      const documents = Array.isArray(data) ? data : [];
+      setCustomerDocuments(documents);
+      setDocumentsStatus(
+        documents.length === 0
+          ? `No indexed FAQ documents found for ${customerIdToLoad}.`
+          : `Loaded ${documents.length} document${documents.length === 1 ? "" : "s"} for ${customerIdToLoad}.`
+      );
+    } catch (requestError) {
+      setCustomerDocuments([]);
+      setDocumentsStatus(requestError.message || "Failed to load indexed documents.");
+    } finally {
+      setDocumentsLoading(false);
+    }
+  }
 
   useEffect(() => {
     if (!error) {
@@ -116,6 +213,18 @@ function App() {
       imageInputRef.current.value = "";
     }
   }, [needsImageContext]);
+
+  useEffect(() => {
+    loadCustomers(customer);
+  }, []);
+
+  useEffect(() => {
+    if (!documentManagerOpen) {
+      return;
+    }
+
+    loadCustomerDocuments(customer);
+  }, [documentManagerOpen, customer]);
 
   function normalizeMeta(serviceId, data) {
     const metaEntries = [];
@@ -321,9 +430,17 @@ function App() {
     setTranscript([]);
     setError("");
     setUploadedFaqName("");
+    setSelectedFaqFile(null);
+    setFaqUploadStatus("");
+    setFaqUploadResult(null);
+    setCustomerDocuments([]);
+    setDocumentsStatus("");
     setUploadedImage(null);
     if (imageInputRef.current) {
       imageInputRef.current.value = "";
+    }
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
     }
   }
 
@@ -342,11 +459,105 @@ function App() {
   function handleFaqSelection(event) {
     const selectedFile = event.target.files?.[0];
     if (!selectedFile) {
+      setSelectedFaqFile(null);
+      setUploadedFaqName("");
       return;
     }
 
+    const allowedExtensions = ["pdf", "md", "yaml", "yml", "doc", "docx", "txt", "png", "jpg", "jpeg"];
+    const fileExtension = selectedFile.name.split(".").pop()?.toLowerCase();
+
+    if (!fileExtension || !allowedExtensions.includes(fileExtension)) {
+      setError("Unsupported FAQ file type. Use PDF, Markdown, YAML, DOC, DOCX, TXT, PNG, JPG, or JPEG.");
+      setSelectedFaqFile(null);
+      setUploadedFaqName("");
+      event.target.value = "";
+      return;
+    }
+
+    setError("");
+    setFaqUploadStatus("");
+    setFaqUploadResult(null);
+    setSelectedFaqFile(selectedFile);
     setUploadedFaqName(selectedFile.name);
-    setError("FAQ upload UI is ready, but backend file ingestion is not wired yet.");
+  }
+
+  async function handleFaqUpload() {
+    if (!selectedFaqFile || !trimmedCustomerId || uploadingFaq) {
+      return;
+    }
+
+    setUploadingFaq(true);
+    setError("");
+    setFaqUploadStatus(`Uploading ${selectedFaqFile.name} for ${trimmedCustomerId}...`);
+
+    try {
+      const formData = new FormData();
+      formData.append("customerId", trimmedCustomerId);
+      formData.append("file", selectedFaqFile);
+
+      const response = await fetch(`${ingestionApiUrl}/documents/upload`, {
+        method: "POST",
+        body: formData,
+      });
+      const data = await parseResponse(response);
+
+      if (!response.ok) {
+        throw new Error(data.message || data.processingError || `Upload failed with status ${response.status}`);
+      }
+
+      setFaqUploadResult(data);
+      setFaqUploadStatus(`Indexed ${data.originalFileName || selectedFaqFile.name} for ${trimmedCustomerId}.`);
+      setUploadedFaqName(data.originalFileName || selectedFaqFile.name);
+      await loadCustomerDocuments(trimmedCustomerId);
+      setSelectedFaqFile(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    } catch (requestError) {
+      setFaqUploadResult(null);
+      setError(requestError.message || "Failed to upload FAQ document.");
+      setFaqUploadStatus("");
+    } finally {
+      setUploadingFaq(false);
+    }
+  }
+
+  async function handleCreateCustomer(event) {
+    event.preventDefault();
+    if (!canCreateCustomer) {
+      return;
+    }
+
+    setCustomerBusy(true);
+    setError("");
+
+    try {
+      const response = await fetch(`${ingestionApiUrl}/customers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customerId: trimmedNewCustomerId,
+          name: trimmedNewCustomerName,
+          description: newCustomerDescription.trim(),
+        }),
+      });
+      const data = await parseResponse(response);
+
+      if (!response.ok) {
+        throw new Error(data.message || `Failed to create customer (${response.status})`);
+      }
+
+      setNewCustomerId("");
+      setNewCustomerName("");
+      setNewCustomerDescription("");
+      setCustomerStatus(`Created customer ${data.customerId}.`);
+      await loadCustomers(data.customerId);
+    } catch (requestError) {
+      setError(requestError.message || "Failed to create customer.");
+    } finally {
+      setCustomerBusy(false);
+    }
   }
 
   function handleImageSelection(event) {
@@ -424,9 +635,9 @@ function App() {
             <label>
               <span>Customer</span>
               <select value={customer} onChange={(event) => setCustomer(event.target.value)}>
-                {customerOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
+                {customers.map((option) => (
+                  <option key={option.customerId} value={option.customerId}>
+                    {option.name}
                   </option>
                 ))}
               </select>
@@ -468,18 +679,23 @@ function App() {
               Export Transcript
             </button>
             <button type="button" className="accent-solid" onClick={() => fileInputRef.current?.click()} disabled={!canUploadFaq}>
-              Upload FAQ
+              Select FAQ
+            </button>
+            <button type="button" className="accent-soft" onClick={() => setDocumentManagerOpen((currentValue) => !currentValue)}>
+              {documentManagerOpen ? "Hide document tools" : "Manage FAQ documents"}
             </button>
             <input
               ref={fileInputRef}
               className="hidden-input"
               type="file"
-              accept=".md,.txt,.json"
+              accept=".pdf,.md,.yaml,.yml,.doc,.docx,.txt,.png,.jpg,.jpeg"
               onChange={handleFaqSelection}
             />
           </div>
 
           {uploadedFaqName && <p className="supporting-note">Selected FAQ file: {uploadedFaqName}</p>}
+          <p className="supporting-note">{customerStatus}</p>
+          {faqUploadStatus && <p className="supporting-note">{faqUploadStatus}</p>}
           {mode === "compare" && (
             <p className="supporting-note">
               Compare mode shows the selected RAG pattern for all frameworks for the selected customer.
@@ -497,6 +713,123 @@ function App() {
             </p>
           )}
           {error && <p className="error-banner">{error}</p>}
+
+          {documentManagerOpen && (
+            <section className="document-manager-card">
+              <div className="document-manager-header">
+                <div>
+                  <p className="section-label">Document Management</p>
+                  <h2>Ingestion Controls</h2>
+                </div>
+                <button type="button" className="accent-soft" onClick={() => window.open(`${ingestionApiUrl}/chroma-ui`, "_blank", "noopener,noreferrer")}>
+                  Open Chroma UI
+                </button>
+              </div>
+
+              <div className="document-manager-grid">
+                <div className="manager-panel">
+                  <p className="meta-title">Upload FAQ</p>
+                  <p className="supporting-note">Choose a customer, select a supported document, then push it into the Spring AI ingestion service.</p>
+                  <div className="upload-summary">
+                    <p><strong>Customer:</strong> {trimmedCustomerId || "None selected"}</p>
+                    <p><strong>File:</strong> {selectedFaqFile?.name || uploadedFaqName || "No file selected"}</p>
+                  </div>
+                  <div className="toolbar-actions compact-actions">
+                    <button type="button" className="accent-solid" onClick={handleFaqUpload} disabled={!selectedFaqFile || !canUploadFaq}>
+                      {uploadingFaq ? "Uploading..." : "Upload and index"}
+                    </button>
+                    <button type="button" className="accent-soft" onClick={() => fileInputRef.current?.click()} disabled={uploadingFaq}>
+                      Change file
+                    </button>
+                  </div>
+                  <p className="supporting-note">Supported: PDF, Markdown, YAML, DOC, DOCX, TXT, PNG, JPG, JPEG.</p>
+
+                  {faqUploadResult && (
+                    <div className="upload-result success-panel">
+                      <p className="meta-title">Latest Indexed Document</p>
+                      <ul>
+                        <li><strong>Name:</strong> {faqUploadResult.originalFileName}</li>
+                        <li><strong>Status:</strong> {faqUploadResult.processingStatus}</li>
+                        <li><strong>Structure:</strong> {faqUploadResult.detectedStructure || "Auto-detection pending"}</li>
+                        <li><strong>Chunks:</strong> {faqUploadResult.indexedChunkCount ?? faqUploadResult.chunkCount ?? 0}</li>
+                      </ul>
+                    </div>
+                  )}
+                </div>
+
+                <form className="manager-panel" onSubmit={handleCreateCustomer}>
+                  <p className="meta-title">Create Customer</p>
+                  <label>
+                    <span>Customer ID</span>
+                    <input
+                      type="text"
+                      value={newCustomerId}
+                      onChange={(event) => setNewCustomerId(event.target.value)}
+                      placeholder="acme_corp"
+                    />
+                  </label>
+                  <label>
+                    <span>Display Name</span>
+                    <input
+                      type="text"
+                      value={newCustomerName}
+                      onChange={(event) => setNewCustomerName(event.target.value)}
+                      placeholder="ACME Corp"
+                    />
+                  </label>
+                  <label>
+                    <span>Description (optional)</span>
+                    <input
+                      type="text"
+                      value={newCustomerDescription}
+                      onChange={(event) => setNewCustomerDescription(event.target.value)}
+                      placeholder="Customer-specific FAQ knowledge base"
+                    />
+                  </label>
+                  <div className="toolbar-actions compact-actions">
+                    <button type="submit" className="accent-solid" disabled={!canCreateCustomer}>
+                      {customerBusy ? "Creating..." : "Create customer"}
+                    </button>
+                    <button type="button" className="accent-soft" onClick={() => loadCustomers(customer)} disabled={customerBusy}>
+                      Refresh list
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              <div className="manager-panel document-history-panel">
+                <div className="document-history-header">
+                  <p className="meta-title">Indexed Documents</p>
+                  <button type="button" className="accent-soft" onClick={() => loadCustomerDocuments(customer)} disabled={documentsLoading}>
+                    {documentsLoading ? "Refreshing..." : "Refresh documents"}
+                  </button>
+                </div>
+                <p className="supporting-note">{documentsStatus || `Viewing indexed documents for ${trimmedCustomerId}.`}</p>
+
+                {customerDocuments.length > 0 ? (
+                  <div className="document-history-list">
+                    {customerDocuments.map((document) => (
+                      <article key={document.id} className="document-history-item">
+                        <div>
+                          <h3>{document.originalFileName}</h3>
+                          <p className="supporting-note">{document.fileType?.toUpperCase()} | {document.processingStatus}</p>
+                        </div>
+                        <ul>
+                          <li><strong>Structure:</strong> {document.detectedStructure || "Pending"}</li>
+                          <li><strong>Chunks:</strong> {document.indexedChunkCount ?? document.chunkCount ?? 0}</li>
+                          <li><strong>Size:</strong> {Math.round((document.fileSizeBytes || 0) / 1024)} KB</li>
+                        </ul>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="upload-summary">
+                    <p>No indexed documents to show yet.</p>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
         </section>
 
         <section className="conversation-stack">

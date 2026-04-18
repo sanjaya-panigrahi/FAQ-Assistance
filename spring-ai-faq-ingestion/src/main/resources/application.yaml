@@ -1,0 +1,88 @@
+spring:
+  application:
+    name: spring-ai-faq-ingestion
+  profiles:
+    active: dev
+
+  # JPA Configuration
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+
+  # DataSource (H2 for metadata)
+  datasource:
+    url: jdbc:h2:file:./data/faq_ingestion;MODE=PostgreSQL
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ''
+
+  # H2 Console (for debugging metadata)
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+  # Spring AI Configuration
+  ai:
+    openai:
+      api-key: ${OPENAI_API_KEY:}
+      model: gpt-4o-mini
+      embedding-model: text-embedding-3-small
+
+# Server Configuration
+server:
+  port: 9000
+  servlet:
+    context-path: /
+
+# Logging
+logging:
+  level:
+    root: INFO
+    com.mytechstore: DEBUG
+    org.springframework.web: INFO
+    org.hibernate: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+
+# Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,info
+  endpoint:
+    health:
+      show-details: always
+
+# Application Settings
+app:
+  # Document Processing
+  document:
+    upload-dir: ./uploads
+    max-file-size: 52428800  # 50MB
+    chunk-size: 1000  # characters per chunk
+    chunk-overlap: 200  # characters overlap between chunks
+    allowed-types: "pdf,md,yaml,yml,doc,docx,txt,png,jpg,jpeg"
+
+  # ChromaDB Configuration
+  chroma:
+    url: ${APP_CHROMA_URL:http://localhost:8000}
+    persist-directory: ./chroma_data
+    collection-name-prefix: "faq_"  # Will create collections like faq_acme_corp
+    embedding-dim: 1536  # OpenAI text-embedding-3-small dimension
+
+  # RAG Configuration
+  rag:
+    top-k-results: 5
+    similarity-threshold: 0.5
+    enable-reranking: false
+
+  # Multi-tenancy
+  multitenancy:
+    enabled: true
+    isolation-level: collection  # Each customer gets own collection

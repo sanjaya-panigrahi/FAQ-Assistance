@@ -261,6 +261,55 @@ services:
     networks:
       - faq-network
 
+  # FAQ Ingestion Stack - ChromaDB + Spring AI multi-tenant ingestion service
+  chroma-faq:
+    image: ${FAQ_CHROMA_IMAGE:-chromadb/chroma:0.5.23}
+    container_name: ${FAQ_CHROMA_CONTAINER_NAME:-chroma-faq}
+    ports:
+      - "${FAQ_CHROMA_PORT:-8000}:8000"
+    volumes:
+      - chroma_faq_data:/data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bash",
+          "-lc",
+          "(exec 3<>/dev/tcp/localhost/8000 && printf 'GET /api/v2/heartbeat HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3) || (exec 4<>/dev/tcp/localhost/8000 && printf 'GET /api/v1/heartbeat HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&4 && grep -q '200 OK' <&4)",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - faq-network
+    restart: unless-stopped
+
+  faq-ingestion:
+    build:
+      context: ./spring-ai-faq-ingestion
+      dockerfile: Dockerfile
+    container_name: ${FAQ_INGESTION_CONTAINER_NAME:-faq-ingestion}
+    ports:
+      - "${FAQ_INGESTION_PORT:-9000}:9000"
+    env_file: .env
+    depends_on:
+      chroma-faq:
+        condition: service_healthy
+    volumes:
+      - faq_uploads:/app/uploads
+      - faq_chroma:/app/chroma_data
+      - faq_metadata:/app/data
+    networks:
+      - faq-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${FAQ_INGESTION_PORT:-9000}/api/faq-ingestion/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
   # React UI - connects to all three stacks
   faq-ui:
     build:
@@ -275,6 +324,16 @@ services:
       - faq-network
     environment:
       VITE_API_HOST: localhost
+
+volumes:
+  chroma_faq_data:
+    driver: local
+  faq_uploads:
+    driver: local
+  faq_chroma:
+    driver: local
+  faq_metadata:
+    driver: local
 
 networks:
   faq-network:

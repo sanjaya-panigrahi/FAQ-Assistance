@@ -98,6 +98,21 @@ for port in 8281 8282 8283 8284 8285; do
 done
 echo ""
 
+echo -e "${BLUE}Health Check - FAQ Ingestion Stack:${NC}"
+response=$(curl -s --max-time 5 http://localhost:8000/api/v1/heartbeat 2>/dev/null)
+if [ -n "$response" ]; then
+    echo -e "${GREEN}✓ ChromaDB (port 8000): UP${NC}"
+else
+    echo -e "${RED}✗ ChromaDB (port 8000): DOWN${NC}"
+fi
+response=$(curl -s --max-time 5 http://localhost:9000/api/faq-ingestion/health 2>/dev/null)
+if echo "$response" | grep -qE '"status":"(UP|DEGRADED)"'; then
+    echo -e "${GREEN}✓ FAQ Ingestion (port 9000): UP${NC}"
+else
+    echo -e "${RED}✗ FAQ Ingestion (port 9000): DOWN${NC}"
+fi
+echo ""
+
 # Rebuild indexes
 echo -e "${BLUE}Rebuilding FAQ indexes...${NC}"
 for port in 8081 8082 8083 8084 8085 8181 8182 8183 8184 8185 8281 8282 8283 8284 8285; do
@@ -114,10 +129,13 @@ echo ""
 echo -e "${BLUE}📊 Stack Overview:${NC}"
 echo -e "  Spring AI   (Ports 8081-8085): Agentic, Graph, Corrective, Multimodal, Hierarchical"
 echo -e "  LangChain   (Ports 8181-8185): Agentic, Graph, Corrective, Multimodal, Hierarchical"
-echo -e "  LangGraph   (Ports 8281-8285): Agentic, Graph, Corrective, Multimodal, Hierarchical"
+echo -e "  LangGraph      (Ports 8281-8285): Agentic, Graph, Corrective, Multimodal, Hierarchical"
+echo -e "  FAQ Ingestion  (Ports 8000, 9000): ChromaDB, Ingestion API"
 echo ""
 echo -e "${BLUE}🌐 UI Access:${NC}"
-echo -e "  ${GREEN}http://localhost:5173${NC}"
+echo -e "  Main UI:              ${GREEN}http://localhost:5173${NC}"
+echo -e "  FAQ Ingestion API:    ${GREEN}http://localhost:9000/api/faq-ingestion/health${NC}"
+echo -e "  H2 Console:           ${GREEN}http://localhost:9000/h2-console${NC}"
 echo ""
 echo -e "${BLUE}📖 Quick Test Commands:${NC}"
 echo -e "  Compare all backends:"
