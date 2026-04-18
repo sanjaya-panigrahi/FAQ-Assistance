@@ -135,6 +135,15 @@ function App() {
     if (data.strategy) {
       metaEntries.push({ label: "Strategy", value: data.strategy });
     }
+    if (data.consistencyLabel) {
+      metaEntries.push({ label: "Image/Text Match", value: data.consistencyLabel });
+    }
+    if (typeof data.consistencyScore === "number") {
+      metaEntries.push({ label: "Match Score", value: data.consistencyScore.toFixed(2) });
+    }
+    if (Array.isArray(data.consistencyReasons) && data.consistencyReasons.length > 0) {
+      metaEntries.push({ label: "Consistency Notes", value: data.consistencyReasons.join("; ") });
+    }
     if (typeof data.blocked === "boolean") {
       metaEntries.push({ label: "Blocked", value: data.blocked ? "Yes" : "No" });
     }
@@ -424,18 +433,17 @@ function App() {
             </label>
           </div>
 
-          <label className="image-context-field">
-            <span>Image Context</span>
-            <input
-              type="text"
-              value={imageDescription}
-              onChange={(event) => setImageDescription(event.target.value)}
-              disabled={!needsImageContext}
-              placeholder={needsImageContext
-                ? "Optional description for multimodal comparisons"
-                : "Available for compare mode or multimodal RAG"}
-            />
-          </label>
+          {needsImageContext && (
+            <label className="image-context-field">
+              <span>Image Context</span>
+              <input
+                type="text"
+                value={imageDescription}
+                onChange={(event) => setImageDescription(event.target.value)}
+                placeholder="Optional description for multimodal comparisons"
+              />
+            </label>
+          )}
 
           {needsImageContext && (
             <label className="image-upload-field">
@@ -475,11 +483,6 @@ function App() {
           {mode === "compare" && (
             <p className="supporting-note">
               Compare mode shows the selected RAG pattern for all frameworks for the selected customer.
-            </p>
-          )}
-          {!needsImageContext && (
-            <p className="supporting-note">
-              Image context is enabled only for the multimodal RAG pattern.
             </p>
           )}
           {needsImageContext && uploadedImage && (

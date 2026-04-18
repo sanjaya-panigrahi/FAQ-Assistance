@@ -1,4 +1,12 @@
 package com.mytechstore.vision.dto;
 
-public record VisionRagResponse(String answer, int chunksUsed) {
+import java.util.List;
+
+public record VisionRagResponse(
+	String answer,
+	int chunksUsed,
+	String strategy,
+	String consistencyLabel,
+	Double consistencyScore,
+	List<String> consistencyReasons) {
 }

@@ -28,6 +28,9 @@ import jakarta.validation.Valid;
 @RequestMapping("/api")
 public class VisionRagController {
 
+    private record ImageContextBundle(String context, OpenAiVisionExtractor.ConsistencyResult consistency) {
+    }
+
     private final VisionPipelineService pipelineService;
     private final OpenAiVisionExtractor visionExtractor;
 
@@ -57,12 +60,22 @@ public class VisionRagController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "question is required");
         }
 
-        String imageContext = buildImageContext(imageDescription, image);
-        return ResponseEntity.ok(pipelineService.ask(cleanedQuestion, imageContext));
+        ImageContextBundle bundle = buildImageContext(imageDescription, image);
+        VisionRagResponse baseResponse = pipelineService.ask(cleanedQuestion, bundle.context());
+        OpenAiVisionExtractor.ConsistencyResult consistency = bundle.consistency();
+
+        return ResponseEntity.ok(new VisionRagResponse(
+                baseResponse.answer(),
+                baseResponse.chunksUsed(),
+                baseResponse.strategy(),
+                consistency.label(),
+                consistency.score(),
+                consistency.reasons()));
     }
 
-    private String buildImageContext(String imageDescription, MultipartFile image) {
+    private ImageContextBundle buildImageContext(String imageDescription, MultipartFile image) {
         StringBuilder context = new StringBuilder();
+        String visualSignals = "";
 
         if (image != null && !image.isEmpty()) {
             String contentType = image.getContentType() == null ? "unknown" : image.getContentType();
@@ -83,7 +96,7 @@ public class VisionRagController {
             }
 
             try {
-                String visualSignals = visionExtractor.extractImageSignals(image.getBytes(), contentType);
+                visualSignals = visionExtractor.extractImageSignals(image.getBytes(), contentType);
                 if (!visualSignals.isBlank()) {
                     context.append("\nVision extraction: ").append(visualSignals);
                 }
@@ -100,6 +113,8 @@ public class VisionRagController {
             context.append("User image notes: ").append(cleanedDescription);
         }
 
-        return context.toString();
+        OpenAiVisionExtractor.ConsistencyResult consistency =
+                visionExtractor.evaluateConsistency(cleanedDescription, visualSignals);
+        return new ImageContextBundle(context.toString(), consistency);
     }
 }

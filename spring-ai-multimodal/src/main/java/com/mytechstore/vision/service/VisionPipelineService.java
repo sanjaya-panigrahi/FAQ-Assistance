@@ -69,7 +69,7 @@ public class VisionPipelineService {
                 + "Question: " + question;
 
         String answer = chatClient.prompt().user(prompt).call().content();
-        return new VisionRagResponse(answer, hits.size());
+        return new VisionRagResponse(answer, hits.size(), "multimodal-context", null, null, List.of());
     }
 
     private List<Document> parseFaqDocuments() {
