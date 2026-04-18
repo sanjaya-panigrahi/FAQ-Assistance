@@ -144,6 +144,15 @@ input[type="text"] {
   color: var(--text);
 }
 
+input[type="file"] {
+  min-height: 46px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  padding: 9px 12px;
+  background: #fff;
+  color: var(--muted);
+}
+
 input[type="text"]:disabled,
 select:disabled {
   background: #f1f5f4;
@@ -153,6 +162,10 @@ select:disabled {
 
 .image-context-field {
   margin-top: 12px;
+}
+
+.image-upload-field {
+  margin-top: 10px;
 }
 
 .toolbar-actions {

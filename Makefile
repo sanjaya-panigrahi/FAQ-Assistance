@@ -1,4 +1,4 @@
-.PHONY: help build-all up-all down-all rebuild-indexes test-all clean-orphans
+.PHONY: help build-all up-all down-all down-rebuild-up rebuild-indexes test-all clean clean-orphans
 .PHONY: spring-build spring-up spring-down spring-test
 .PHONY: langchain-build langchain-up langchain-down langchain-test
 .PHONY: langgraph-build langgraph-up langgraph-down langgraph-test
@@ -11,7 +11,9 @@ help:
 	@echo "  build-all              Build all three stacks (Spring AI, LangChain, LangGraph)"
 	@echo "  up-all                 Bring up all three stacks"
 	@echo "  down-all               Shut down all three stacks"
+	@echo "  down-rebuild-up        Down, rebuild images, and bring up all stacks"
 	@echo "  test-all               Run smoke tests on all stacks"
+	@echo "  clean                  Down and remove all containers (incl. orphans)"
 	@echo "  rebuild-indexes        Rebuild FAQ indexes across all stacks"
 	@echo "  clean-orphans          Remove orphaned containers"
 	@echo ""
@@ -48,6 +50,13 @@ up-all: spring-up langchain-up langgraph-up
 down-all: spring-down langchain-down langgraph-down
 	@echo "✓ All stacks shut down"
 
+down-rebuild-up:
+	@echo "Running down -> rebuild -> up for all stacks..."
+	$(MAKE) down-all
+	$(MAKE) build-all
+	$(MAKE) up-all
+	@echo "✓ Down, rebuild, and up completed"
+
 test-all: spring-test langchain-test langgraph-test
 	@echo "✓ All smoke tests passed"
 
@@ -55,8 +64,12 @@ rebuild-indexes: spring-rebuild-indexes langchain-rebuild-indexes langgraph-rebu
 	@echo "✓ All indexes rebuilt"
 
 clean-orphans:
-	docker compose --remove-orphans
+	docker compose -f docker-compose.master.yml down --remove-orphans
 	@echo "✓ Orphaned containers removed"
+
+clean:
+	docker compose -f docker-compose.master.yml down --remove-orphans
+	@echo "✓ Containers removed"
 
 # === Spring AI (Java) ===
 

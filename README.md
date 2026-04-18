@@ -46,8 +46,8 @@ make down-all       # Stop all stacks
 cp .env.example .env
 export OPENAI_API_KEY="your-key-here"
 
-docker-compose -f docker-compose.master.yml up --build -d
-docker-compose -f docker-compose.master.yml down
+docker compose -f docker-compose.master.yml up --build -d
+docker compose -f docker-compose.master.yml down
 ```
 
 ---
@@ -245,6 +245,17 @@ curl -X POST http://localhost:8281/api/query/ask \
   -d '{"question":"What is your laptop return policy?"}'
 ```
 
+**Multimodal with optional image upload**:
+```bash
+curl -X POST http://localhost:8284/api/query/ask-with-image \
+   -F 'question=Can I return this damaged monitor?' \
+   -F 'imageDescription=Photo shows a cracked corner and dead pixels' \
+   -F 'image=@/absolute/path/to/monitor.jpg'
+```
+
+When an image is uploaded, the service performs vision extraction and injects extracted visual signals into the RAG context.
+If no file is provided, continue using JSON payload on `/api/query/ask`.
+
 ---
 
 ## Environment Setup
@@ -252,6 +263,12 @@ curl -X POST http://localhost:8281/api/query/ask \
 ```bash
 cp .env.example .env
 export OPENAI_API_KEY="sk-..."
+
+# Optional vision model override for Python multimodal services
+export OPENAI_VISION_MODEL="gpt-4o-mini"
+
+# Optional vision model override for Spring multimodal service
+export OPENAI_VISION_MODEL="gpt-4o-mini"
 ```
 
 ---

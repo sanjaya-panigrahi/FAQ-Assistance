@@ -99,7 +99,8 @@ services:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:7474"]
       interval: 15s
       timeout: 10s
-      retries: 10
+      retries: 20
+      start_period: 60s
     networks:
       - faq-network
 
@@ -111,9 +112,6 @@ services:
     env_file: .env
     environment:
       APP_PORT: 8000
-    depends_on:
-      neo4j-langchain:
-        condition: service_healthy
     volumes:
       - ./shared-data:/opt/data:ro
     networks:

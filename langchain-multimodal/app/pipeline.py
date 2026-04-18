@@ -42,7 +42,7 @@ class MultimodalPipeline:
         prompt = (
             "You are a multimodal-style support assistant. Use FAQ context and optional image hints.\n\n"
             f"Question: {question}\n\n"
-            f"Image Description: {image_description or 'No image context provided'}\n\n"
+            f"Image Signals: {image_description or 'No image context provided'}\n\n"
             f"FAQ Context:\n{context}"
         )
 

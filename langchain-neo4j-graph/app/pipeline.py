@@ -7,26 +7,24 @@ from .schemas import RagResponse
 
 
 class GraphPipeline:
-    def graph_client(self) -> Neo4jGraph:
-        return Neo4jGraph(url=settings.neo4j_uri, username=settings.neo4j_username, password=settings.neo4j_password)
+    def __init__(self) -> None:
+        self._graph_client = Neo4jGraph(
+            url=settings.neo4j_uri,
+            username=settings.neo4j_username,
+            password=settings.neo4j_password,
+        )
+        self._llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
 
     def health(self) -> dict:
         try:
-            graph = self.graph_client()
-            count_rows = graph.query("MATCH (f:FaqEntry) RETURN count(f) AS total")
+            count_rows = self._graph_client.query("MATCH (f:FaqEntry) RETURN count(f) AS total")
             total = int(count_rows[0]["total"]) if count_rows else 0
             return {"status": "UP", "graphFacts": total}
         except Exception as exc:  # pragma: no cover
             return {"status": "DOWN", "error": str(exc)}
 
     def rebuild_index(self) -> int:
-        graph = self.graph_client()
         docs = parse_faq_documents(settings.faq_source_file)
-
-        graph.query("CREATE CONSTRAINT faq_id_unique IF NOT EXISTS FOR (f:FaqEntry) REQUIRE f.id IS UNIQUE")
-        graph.query("CREATE FULLTEXT INDEX faq_fulltext IF NOT EXISTS FOR (f:FaqEntry) ON EACH [f.question, f.answer]")
-        graph.query("MATCH (f:FaqEntry) DETACH DELETE f")
-
         batch = [
             {
                 "id": doc.metadata["id"],
@@ -35,20 +33,27 @@ class GraphPipeline:
             }
             for doc in docs
         ]
+        current_ids = [doc.metadata["id"] for doc in docs]
 
-        graph.query(
+        self._graph_client.query("CREATE CONSTRAINT faq_id_unique IF NOT EXISTS FOR (f:FaqEntry) REQUIRE f.id IS UNIQUE")
+        self._graph_client.query("CREATE FULLTEXT INDEX faq_fulltext IF NOT EXISTS FOR (f:FaqEntry) ON EACH [f.question, f.answer]")
+        self._graph_client.query(
             """
             UNWIND $rows AS row
-            CREATE (f:FaqEntry {id: row.id, question: row.question, answer: row.answer})
+            MERGE (f:FaqEntry {id: row.id})
+            SET f.question = row.question, f.answer = row.answer
             """,
             {"rows": batch},
+        )
+        self._graph_client.query(
+            "MATCH (f:FaqEntry) WHERE NOT f.id IN $ids DETACH DELETE f",
+            {"ids": current_ids},
         )
 
         return len(docs)
 
     def ask(self, question: str) -> RagResponse:
-        graph = self.graph_client()
-        rows = graph.query(
+        rows = self._graph_client.query(
             """
             CALL db.index.fulltext.queryNodes('faq_fulltext', $q) YIELD node, score
             RETURN node.id AS id, node.question AS question, node.answer AS answer, score
@@ -59,8 +64,7 @@ class GraphPipeline:
         )
         context = "\n\n".join(f"Q: {row['question']}\nA: {row['answer']}" for row in rows)
 
-        llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
-        answer = llm.invoke(
+        answer = self._llm.invoke(
             (
                 "You are a graph-retrieval FAQ assistant. Use the graph context first and answer precisely.\n\n"
                 f"Question: {question}\n\n"

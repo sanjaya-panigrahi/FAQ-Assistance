@@ -18,36 +18,38 @@ class GraphState(TypedDict, total=False):
 
 class GraphPipeline:
     def __init__(self) -> None:
-        self._graph = self._build_graph()
-
-    def _driver(self):
-        return GraphDatabase.driver(
+        self._driver_instance = GraphDatabase.driver(
             settings.neo4j_uri,
             auth=(settings.neo4j_username, settings.neo4j_password),
         )
+        self._llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
+        self._graph = self._build_graph()
 
     def health(self) -> dict:
         try:
-            with self._driver() as driver:
-                records, _, _ = driver.execute_query("MATCH (f:FaqEntry) RETURN count(f) AS total")
-                total = int(records[0]["total"]) if records else 0
+            records, _, _ = self._driver_instance.execute_query("MATCH (f:FaqEntry) RETURN count(f) AS total")
+            total = int(records[0]["total"]) if records else 0
             return {"status": "UP", "graphFacts": total}
         except Exception as exc:  # pragma: no cover
             return {"status": "DOWN", "error": str(exc)}
 
     def rebuild_index(self) -> int:
         rows = parse_faq_entries(settings.faq_source_file)
-        with self._driver() as driver:
-            driver.execute_query("CREATE CONSTRAINT faq_id_unique IF NOT EXISTS FOR (f:FaqEntry) REQUIRE f.id IS UNIQUE")
-            driver.execute_query("CREATE FULLTEXT INDEX faq_fulltext IF NOT EXISTS FOR (f:FaqEntry) ON EACH [f.question, f.answer]")
-            driver.execute_query("MATCH (f:FaqEntry) DETACH DELETE f")
-            driver.execute_query(
-                """
-                UNWIND $rows AS row
-                CREATE (f:FaqEntry {id: row.id, question: row.question, answer: row.answer})
-                """,
-                rows=rows,
-            )
+        current_ids = [r["id"] for r in rows]
+        self._driver_instance.execute_query("CREATE CONSTRAINT faq_id_unique IF NOT EXISTS FOR (f:FaqEntry) REQUIRE f.id IS UNIQUE")
+        self._driver_instance.execute_query("CREATE FULLTEXT INDEX faq_fulltext IF NOT EXISTS FOR (f:FaqEntry) ON EACH [f.question, f.answer]")
+        self._driver_instance.execute_query(
+            """
+            UNWIND $rows AS row
+            MERGE (f:FaqEntry {id: row.id})
+            SET f.question = row.question, f.answer = row.answer
+            """,
+            rows=rows,
+        )
+        self._driver_instance.execute_query(
+            "MATCH (f:FaqEntry) WHERE NOT f.id IN $ids DETACH DELETE f",
+            ids=current_ids,
+        )
         return len(rows)
 
     def ask(self, question: str) -> RagResponse:
@@ -76,23 +78,21 @@ class GraphPipeline:
         return {"traversal_plan": f"Use fulltext traversal for question: {question}"}
 
     def _traverse_node(self, state: GraphState) -> GraphState:
-        with self._driver() as driver:
-            records, _, _ = driver.execute_query(
-                """
-                CALL db.index.fulltext.queryNodes('faq_fulltext', $q) YIELD node, score
-                RETURN node.id AS id, node.question AS question, node.answer AS answer, score
-                ORDER BY score DESC
-                LIMIT 5
-                """,
-                q=state["question"],
-            )
+        records, _, _ = self._driver_instance.execute_query(
+            """
+            CALL db.index.fulltext.queryNodes('faq_fulltext', $q) YIELD node, score
+            RETURN node.id AS id, node.question AS question, node.answer AS answer, score
+            ORDER BY score DESC
+            LIMIT 5
+            """,
+            q=state["question"],
+        )
         rows = [dict(record) for record in records]
         return {"rows": rows}
 
     def _answer_node(self, state: GraphState) -> GraphState:
         context = "\n\n".join(f"Q: {row['question']}\nA: {row['answer']}" for row in state.get("rows", []))
-        llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
-        answer = llm.invoke(
+        answer = self._llm.invoke(
             (
                 "You are a graph-traversal FAQ assistant. Graph traversal is one step of a broader workflow. "
                 "Answer precisely from graph context.\n\n"

@@ -38,6 +38,8 @@ public class GraphPipelineService {
     private final String sourceFile;
     private final AtomicBoolean indexed = new AtomicBoolean(false);
         private volatile List<Document> faqEntries = List.of();
+        private volatile List<String> indexedVectorDocIds = List.of();
+        private volatile String lastFaqDigest = "";
 
     public GraphPipelineService(VectorStore vectorStore,
                                 Neo4jClient neo4jClient,
@@ -51,7 +53,17 @@ public class GraphPipelineService {
 
     public synchronized String rebuildIndex() {
         List<Document> docs = parseFaqDocuments();
+
+                String currentDigest = computeDigest(docs);
+                if (indexed.get() && currentDigest.equals(lastFaqDigest)) {
+                        return "Index already up to date (" + docs.size() + " FAQ entries)";
+                }
+
+                if (!indexedVectorDocIds.isEmpty()) {
+                        vectorStore.delete(indexedVectorDocIds);
+                }
         vectorStore.add(docs);
+                indexedVectorDocIds = docs.stream().map(Document::getId).toList();
         faqEntries = docs;
 
         neo4jClient.query("MATCH (n:FaqChunk) DETACH DELETE n").run();
@@ -68,6 +80,7 @@ public class GraphPipelineService {
                 .bind(rows).to("rows").run();
 
         indexed.set(true);
+                lastFaqDigest = currentDigest;
         return "Indexed " + docs.size() + " FAQ entries into vector and graph layers";
     }
 
@@ -152,6 +165,18 @@ public class GraphPipelineService {
                         throw new IllegalStateException("Failed to read FAQ source file: " + sourceFile, ex);
                 }
         }
+
+                private String computeDigest(List<Document> docs) {
+                                return Integer.toHexString(docs.stream()
+                                                                .map(doc -> {
+                                                                                Object section = doc.getMetadata().getOrDefault("section", "");
+                                                                                Object question = doc.getMetadata().getOrDefault("question", "");
+                                                                                Object answer = doc.getMetadata().getOrDefault("answer", "");
+                                                                                return section + "|" + question + "|" + answer;
+                                                                })
+                                                                .collect(Collectors.joining("\n"))
+                                                                .hashCode());
+                }
 
         private int addFaqDocument(List<Document> documents, int faqId, String section, String question, StringBuilder answerBuilder) {
                 if (question == null || question.isBlank()) {

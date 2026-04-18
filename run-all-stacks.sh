@@ -20,11 +20,15 @@ if ! command -v docker &> /dev/null; then
 fi
 echo -e "${GREEN}✓ Docker found${NC}"
 
-if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/null; then
+if docker compose version &> /dev/null; then
+    COMPOSE_CMD="docker compose"
+elif command -v docker-compose &> /dev/null; then
+    COMPOSE_CMD="docker-compose"
+else
     echo -e "${RED}✗ Docker Compose not found. Please install Docker Compose.${NC}"
     exit 1
 fi
-echo -e "${GREEN}✓ Docker Compose found${NC}"
+echo -e "${GREEN}✓ Docker Compose found (${COMPOSE_CMD})${NC}"
 
 if ! command -v curl &> /dev/null; then
     echo -e "${RED}✗ curl not found. Please install curl.${NC}"
@@ -45,7 +49,7 @@ fi
 
 # Start all services
 echo -e "${BLUE}Starting all stacks (Spring AI, LangChain, LangGraph)...${NC}"
-docker-compose -f docker-compose.master.yml up --build -d
+$COMPOSE_CMD -f docker-compose.master.yml up --build -d
 
 if [ $? -ne 0 ]; then
     echo -e "${RED}✗ Failed to start containers${NC}"
@@ -126,5 +130,5 @@ echo -e "  Test LangGraph (neo4j-graph):"
 echo -e "    ${YELLOW}curl -X POST http://localhost:8282/api/query/ask -H 'Content-Type: application/json' -d '{\"question\":\"What is your return policy?\"}'${NC}"
 echo ""
 echo -e "${BLUE}🛑 To stop all services:${NC}"
-echo -e "  ${YELLOW}docker-compose -f docker-compose.master.yml down${NC}"
+echo -e "  ${YELLOW}${COMPOSE_CMD} -f docker-compose.master.yml down${NC}"
 echo ""

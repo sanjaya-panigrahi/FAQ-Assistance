@@ -54,11 +54,13 @@ function App() {
   const [customer, setCustomer] = useState("mytechstore");
   const [question, setQuestion] = useState("What is your laptop return policy?");
   const [imageDescription, setImageDescription] = useState("");
+  const [uploadedImage, setUploadedImage] = useState(null);
   const [transcript, setTranscript] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [uploadedFaqName, setUploadedFaqName] = useState("");
   const fileInputRef = useRef(null);
+  const imageInputRef = useRef(null);
 
   const selectedService = useMemo(
     () => services.find((service) => service.id === selectedServiceId) ?? services[0],
@@ -102,7 +104,18 @@ function App() {
     }
 
     setError("");
-  }, [question, imageDescription, mode, selectedServiceId, framework, customer]);
+  }, [question, imageDescription, mode, selectedServiceId, framework, customer, uploadedImage]);
+
+  useEffect(() => {
+    if (needsImageContext) {
+      return;
+    }
+
+    setUploadedImage(null);
+    if (imageInputRef.current) {
+      imageInputRef.current.value = "";
+    }
+  }, [needsImageContext]);
 
   function normalizeMeta(serviceId, data) {
     const metaEntries = [];
@@ -131,24 +144,45 @@ function App() {
     if (serviceId === "multimodal" && imageDescription.trim()) {
       metaEntries.push({ label: "Image Context", value: imageDescription.trim() });
     }
+    if (serviceId === "multimodal" && uploadedImage) {
+      metaEntries.push({
+        label: "Uploaded Image",
+        value: `${uploadedImage.name} (${Math.round(uploadedImage.size / 1024)} KB)`,
+      });
+    }
 
     return metaEntries;
   }
 
   async function runQuery(service, prompt, overrideUrl) {
     const startedAt = performance.now();
-    const payload = service.id === "multimodal"
-      ? { question: prompt, imageDescription }
-      : { question: prompt };
-
     const baseUrl = overrideUrl ?? resolveUrl(framework, service.id);
 
     try {
-      const response = await fetch(`${baseUrl}/query/ask`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      const isMultimodalUpload = service.id === "multimodal" && uploadedImage;
+      let response;
+
+      if (isMultimodalUpload) {
+        const formData = new FormData();
+        formData.append("question", prompt);
+        formData.append("imageDescription", imageDescription);
+        formData.append("image", uploadedImage);
+
+        response = await fetch(`${baseUrl}/query/ask-with-image`, {
+          method: "POST",
+          body: formData,
+        });
+      } else {
+        const payload = service.id === "multimodal"
+          ? { question: prompt, imageDescription }
+          : { question: prompt };
+
+        response = await fetch(`${baseUrl}/query/ask`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      }
 
       const data = await response.json();
 
@@ -183,15 +217,32 @@ function App() {
     return Promise.all(
       compareFrameworks.map(async (fw) => {
         const startedAt = performance.now();
-        const payload = selectedService.id === "multimodal"
-          ? { question: prompt, imageDescription }
-          : { question: prompt };
         try {
-          const response = await fetch(`${fw.url}/query/ask`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          });
+          const isMultimodalUpload = selectedService.id === "multimodal" && uploadedImage;
+          let response;
+
+          if (isMultimodalUpload) {
+            const formData = new FormData();
+            formData.append("question", prompt);
+            formData.append("imageDescription", imageDescription);
+            formData.append("image", uploadedImage);
+
+            response = await fetch(`${fw.url}/query/ask-with-image`, {
+              method: "POST",
+              body: formData,
+            });
+          } else {
+            const payload = selectedService.id === "multimodal"
+              ? { question: prompt, imageDescription }
+              : { question: prompt };
+
+            response = await fetch(`${fw.url}/query/ask`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+            });
+          }
+
           const data = await response.json();
           if (!response.ok) throw new Error(data.message || `Status ${response.status}`);
           return {
@@ -261,6 +312,10 @@ function App() {
     setTranscript([]);
     setError("");
     setUploadedFaqName("");
+    setUploadedImage(null);
+    if (imageInputRef.current) {
+      imageInputRef.current.value = "";
+    }
   }
 
   function exportTranscript() {
@@ -283,6 +338,31 @@ function App() {
 
     setUploadedFaqName(selectedFile.name);
     setError("FAQ upload UI is ready, but backend file ingestion is not wired yet.");
+  }
+
+  function handleImageSelection(event) {
+    const selectedFile = event.target.files?.[0];
+    if (!selectedFile) {
+      setUploadedImage(null);
+      return;
+    }
+
+    if (!selectedFile.type.startsWith("image/")) {
+      setError("Please select a valid image file.");
+      setUploadedImage(null);
+      event.target.value = "";
+      return;
+    }
+
+    const maxBytes = 5 * 1024 * 1024;
+    if (selectedFile.size > maxBytes) {
+      setError("Image must be 5MB or smaller.");
+      setUploadedImage(null);
+      event.target.value = "";
+      return;
+    }
+
+    setUploadedImage(selectedFile);
   }
 
   return (
@@ -357,6 +437,18 @@ function App() {
             />
           </label>
 
+          {needsImageContext && (
+            <label className="image-upload-field">
+              <span>Upload Image (optional)</span>
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleImageSelection}
+              />
+            </label>
+          )}
+
           <div className="toolbar-actions">
             <button type="button" className="accent-soft" onClick={askQuestion} disabled={!canAsk}>
               {primaryActionLabel}
@@ -388,6 +480,11 @@ function App() {
           {!needsImageContext && (
             <p className="supporting-note">
               Image context is enabled only for the multimodal RAG pattern.
+            </p>
+          )}
+          {needsImageContext && uploadedImage && (
+            <p className="supporting-note">
+              Selected image: <strong>{uploadedImage.name}</strong> ({Math.round(uploadedImage.size / 1024)} KB)
             </p>
           )}
           {mode !== "compare" && (

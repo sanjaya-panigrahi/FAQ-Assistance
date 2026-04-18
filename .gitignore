@@ -39,3 +39,9 @@ dist/
 .env.langgraph.example
 
 *.md
+
+*.html
+
+Doc/
+
+.DS_Store
