@@ -13,4 +13,4 @@ if [ ! -f "${RUNNER}" ]; then
     exit 1
 fi
 
-exec bash "${RUNNER}"
+exec bash "${RUNNER}" "$@"

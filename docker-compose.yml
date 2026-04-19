@@ -20,7 +20,7 @@ services:
       context: ./spring-ai-agentic
       dockerfile: Dockerfile
     ports:
-      - "8081:8081"
+        - "8081:9000"
     env_file: .env
     volumes:
       - ./shared-data:/opt/data:ro
@@ -30,7 +30,7 @@ services:
       context: ./spring-ai-neo4j-graph
       dockerfile: Dockerfile
     ports:
-      - "8082:8082"
+        - "8082:9000"
     env_file: .env
     depends_on:
       - neo4j
@@ -42,7 +42,7 @@ services:
       context: ./spring-ai-corrective
       dockerfile: Dockerfile
     ports:
-      - "8083:8083"
+        - "8083:9000"
     env_file: .env
     volumes:
       - ./shared-data:/opt/data:ro
@@ -52,7 +52,7 @@ services:
       context: ./spring-ai-multimodal
       dockerfile: Dockerfile
     ports:
-      - "8084:8084"
+        - "8084:9000"
     env_file: .env
     volumes:
       - ./shared-data:/opt/data:ro
@@ -62,7 +62,7 @@ services:
       context: ./spring-ai-hierarchical
       dockerfile: Dockerfile
     ports:
-      - "8085:8085"
+        - "8085:9000"
     env_file: .env
     volumes:
       - ./shared-data:/opt/data:ro

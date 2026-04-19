@@ -46,12 +46,14 @@ public class VisionRagController {
 
     @PostMapping("/query/ask")
     public ResponseEntity<VisionRagResponse> ask(@Valid @RequestBody VisionRagRequest request) {
-        return ResponseEntity.ok(pipelineService.ask(request.question(), request.imageDescription()));
+        return ResponseEntity.ok(
+                pipelineService.ask(request.question(), request.imageDescription(), request.customerId()));
     }
 
     @PostMapping(value = "/query/ask-with-image", consumes = {"multipart/form-data"})
     public ResponseEntity<VisionRagResponse> askWithImage(
             @RequestParam("question") String question,
+            @RequestParam(value = "customerId", required = false) String customerId,
             @RequestParam(value = "imageDescription", required = false, defaultValue = "") String imageDescription,
             @RequestParam(value = "image", required = false) MultipartFile image) {
 
@@ -61,13 +63,14 @@ public class VisionRagController {
         }
 
         ImageContextBundle bundle = buildImageContext(imageDescription, image);
-        VisionRagResponse baseResponse = pipelineService.ask(cleanedQuestion, bundle.context());
+        VisionRagResponse baseResponse = pipelineService.ask(cleanedQuestion, bundle.context(), customerId);
         OpenAiVisionExtractor.ConsistencyResult consistency = bundle.consistency();
 
         return ResponseEntity.ok(new VisionRagResponse(
                 baseResponse.answer(),
                 baseResponse.chunksUsed(),
                 baseResponse.strategy(),
+                baseResponse.orchestrationStrategy(),
                 consistency.label(),
                 consistency.score(),
                 consistency.reasons()));

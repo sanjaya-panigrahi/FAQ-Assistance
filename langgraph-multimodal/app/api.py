@@ -11,6 +11,7 @@ from .schemas import VisionRagRequest, VisionRagResponse
 
 
 router = APIRouter()
+ORCHESTRATION_STRATEGY = "langgraph-multimodal-branching"
 
 
 def _compose_image_context(image_description: str, image: UploadFile | None) -> str:
@@ -107,7 +108,7 @@ def health() -> dict:
 def rebuild() -> dict:
     try:
         count = pipeline.rebuild_index()
-        return {"status": "ok", "documents": count}
+        return {"status": "ok", "documents": count, "note": "Index managed by faq-ingestion service"}
     except Exception as exc:  # pragma: no cover
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -119,7 +120,11 @@ def ask(request: VisionRagRequest) -> VisionRagResponse:
         raise HTTPException(status_code=400, detail="question is required")
 
     try:
-        return pipeline.ask(question, request.imageDescription.strip())
+        return pipeline.ask(
+            question=question,
+            image_description=request.imageDescription.strip(),
+            customer_id=request.customerId,
+        )
     except Exception as exc:  # pragma: no cover
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -127,6 +132,7 @@ def ask(request: VisionRagRequest) -> VisionRagResponse:
 @router.post("/api/query/ask-with-image", response_model=VisionRagResponse)
 async def ask_with_image(
     question: str = Form(...),
+    customerId: str | None = Form(default=None),
     imageDescription: str = Form(default=""),
     image: UploadFile | None = File(default=None),
 ) -> VisionRagResponse:
@@ -152,11 +158,16 @@ async def ask_with_image(
     )
 
     try:
-        response = pipeline.ask(cleaned_question, image_context)
+        base = pipeline.ask(
+            question=cleaned_question,
+            image_description=image_context,
+            customer_id=customerId,
+        )
         return VisionRagResponse(
-            answer=response.answer,
-            chunksUsed=response.chunksUsed,
-            strategy=response.strategy,
+            answer=base.answer,
+            chunksUsed=base.chunksUsed,
+            strategy=base.strategy,
+            orchestrationStrategy=base.orchestrationStrategy,
             consistencyLabel=consistency_label,
             consistencyScore=consistency_score,
             consistencyReasons=consistency_reasons,

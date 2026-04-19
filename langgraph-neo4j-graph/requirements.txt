@@ -6,3 +6,5 @@ langchain-community==0.3.7
 langchain-openai==0.2.6
 langgraph==0.2.39
 neo4j==5.25.0
+chromadb==0.5.23
+langchain-chroma==0.1.4

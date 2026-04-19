@@ -18,17 +18,44 @@ Each stack contains 5 microservices implementing the same RAG patterns, indexed 
 cp .env.example .env
 export OPENAI_API_KEY="your-key-here"
 
-# Launch everything with one command
+# Launch everything with one command (fast path, no index rebuild)
 ./run-all-stacks.sh
+
+# Optional: rebuild only selected indexes
+./run-all-stacks.sh --rebuild spring
+./run-all-stacks.sh --rebuild-services spring-agentic,langchain-agentic
 ```
 
 This script will:
 - ✓ Start all 3 stacks (15 services + 3 Neo4j instances)
 - ✓ Start FAQ ingestion services (ChromaDB + Spring ingestion API)
 - ✓ Wait for services to initialize
-- ✓ Rebuild FAQ indexes
+- ✓ Skip index rebuild by default for faster startup
+- ✓ Allow optional index rebuild by stack or specific service
 - ✓ Run health checks
 - ✓ Display UI access URL and quick test commands
+
+### Quickstart Rebuild Controls
+
+```bash
+# Default (fast): no index rebuild
+./quickstart.sh
+
+# Rebuild by stack
+./quickstart.sh --rebuild spring
+./quickstart.sh --rebuild langchain
+./quickstart.sh --rebuild langgraph
+./quickstart.sh --rebuild all
+
+# Rebuild only specific services (IDs or ports)
+./quickstart.sh --rebuild-services spring-agentic,langgraph-neo4j
+./quickstart.sh --rebuild-services 8081,8282
+```
+
+Supported service IDs:
+- spring-agentic, spring-neo4j, spring-corrective, spring-multimodal, spring-hierarchical
+- langchain-agentic, langchain-neo4j, langchain-corrective, langchain-multimodal, langchain-hierarchical
+- langgraph-agentic, langgraph-neo4j, langgraph-corrective, langgraph-multimodal, langgraph-hierarchical
 
 ### Option 2: Using Make
 ```bash

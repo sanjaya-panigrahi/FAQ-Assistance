@@ -5,6 +5,7 @@ from .schemas import RagRequest, RagResponse
 
 
 router = APIRouter()
+ORCHESTRATION_STRATEGY = "langgraph-hierarchy-multistep"
 
 
 @router.get("/actuator/health")
@@ -16,7 +17,7 @@ def health() -> dict:
 def rebuild() -> dict:
     try:
         count = pipeline.rebuild_index()
-        return {"status": "ok", "documents": count}
+        return {"status": "ok", "documents": count, "note": "Index managed by faq-ingestion service"}
     except Exception as exc:  # pragma: no cover
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -28,6 +29,6 @@ def ask(request: RagRequest) -> RagResponse:
         raise HTTPException(status_code=400, detail="question is required")
 
     try:
-        return pipeline.ask(question)
+        return pipeline.ask(question, customer_id=request.customerId)
     except Exception as exc:  # pragma: no cover
         raise HTTPException(status_code=500, detail=str(exc)) from exc

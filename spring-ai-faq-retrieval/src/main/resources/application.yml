@@ -1,0 +1,30 @@
+server:
+  port: ${RETRIEVAL_SERVICE_PORT:9010}
+
+spring:
+  application:
+    name: spring-ai-faq-retrieval
+  ai:
+    openai:
+      api-key: ${OPENAI_API_KEY}
+      chat:
+        options:
+          model: ${SPRING_AI_OPENAI_CHAT_MODEL:gpt-4o-mini}
+      embedding:
+        options:
+          model: ${SPRING_AI_OPENAI_EMBEDDING_MODEL:text-embedding-3-small}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
+retrieval:
+  chroma-url: ${APP_CHROMA_URL:http://chroma-faq:8000}
+  collection-prefix: ${APP_CHROMA_COLLECTION_NAME_PREFIX:faq_}
+  default-tenant: ${RETRIEVAL_DEFAULT_TENANT:smoke_tenant}
+  top-k: ${APP_RAG_TOP_K_RESULTS:5}
+  similarity-threshold: ${APP_RAG_SIMILARITY_THRESHOLD:0.35}
+  rerank-weight-vector: ${FAQ_RETRIEVAL_WEIGHT_VECTOR:0.7}
+  rerank-weight-lexical: ${FAQ_RETRIEVAL_WEIGHT_LEXICAL:0.3}

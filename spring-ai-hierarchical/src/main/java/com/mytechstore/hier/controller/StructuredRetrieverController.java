@@ -35,6 +35,6 @@ public class StructuredRetrieverController {
 
     @PostMapping("/query/ask")
     public ResponseEntity<RagResponse> ask(@Valid @RequestBody RagRequest request) {
-        return ResponseEntity.ok(pipelineService.ask(request.question()));
+        return ResponseEntity.ok(pipelineService.ask(request.question(), request.customerId()));
     }
 }

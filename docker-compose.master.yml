@@ -22,7 +22,7 @@ services:
     build:
       context: ./spring-ai-agentic
     ports:
-      - "8081:8081"
+      - "8081:9000"
     env_file: .env
     depends_on:
       neo4j-spring:
@@ -36,7 +36,7 @@ services:
     build:
       context: ./spring-ai-neo4j-graph
     ports:
-      - "8082:8082"
+      - "8082:9000"
     env_file: .env
     environment:
       NEO4J_URI: bolt://neo4j-spring:7687
@@ -52,7 +52,7 @@ services:
     build:
       context: ./spring-ai-corrective
     ports:
-      - "8083:8083"
+      - "8083:9000"
     env_file: .env
     volumes:
       - ./shared-data:/opt/data:ro
@@ -63,7 +63,7 @@ services:
     build:
       context: ./spring-ai-multimodal
     ports:
-      - "8084:8084"
+      - "8084:9000"
     env_file: .env
     volumes:
       - ./shared-data:/opt/data:ro
@@ -74,7 +74,7 @@ services:
     build:
       context: ./spring-ai-hierarchical
     ports:
-      - "8085:8085"
+      - "8085:9000"
     env_file: .env
     volumes:
       - ./shared-data:/opt/data:ro
@@ -308,6 +308,30 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+    restart: unless-stopped
+
+  spring-ai-faq-retrieval:
+    build:
+      context: ./spring-ai-faq-retrieval
+      dockerfile: Dockerfile
+    container_name: ${FAQ_RETRIEVAL_SERVICE_NAME:-spring-ai-faq-retrieval}
+    ports:
+      - "${FAQ_RETRIEVAL_PORT:-9010}:9010"
+    env_file: .env
+    environment:
+      SERVER_PORT: 9010
+      RETRIEVAL_SERVICE_PORT: 9010
+    depends_on:
+      chroma-faq:
+        condition: service_healthy
+    networks:
+      - faq-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9010/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
 
   # React UI - connects to all three stacks

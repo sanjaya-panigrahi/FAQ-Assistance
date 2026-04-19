@@ -2,6 +2,7 @@ package com.mytechstore.faq.ingestion.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -36,14 +37,17 @@ public class ChromaDBService {
     private final String chromaUrl;
     private final String persistDirectory;
     private final String collectionNamePrefix;
+    private final EmbeddingModel embeddingModel;
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
 
     public ChromaDBService(
+        EmbeddingModel embeddingModel,
         @Value("${app.chroma.url:http://localhost:8000}") String chromaUrl,
         @Value("${app.chroma.persist-directory}") String persistDirectory,
         @Value("${app.chroma.collection-name-prefix}") String collectionNamePrefix
     ) {
+        this.embeddingModel = embeddingModel;
         this.chromaUrl = chromaUrl;
         this.persistDirectory = persistDirectory;
         this.collectionNamePrefix = collectionNamePrefix;
@@ -184,6 +188,22 @@ public class ChromaDBService {
             payload.put("documents", documents);
             payload.put("metadatas", metadatas != null ? metadatas : new ArrayList<>());
             payload.put("ids", ids);
+
+            // Chroma 0.5.x expects query_embeddings at search time; store embeddings explicitly at index time.
+            List<List<Double>> embeddings = new ArrayList<>();
+            for (String document : documents) {
+                float[] vector = embeddingModel.embed(document);
+                if (vector == null || vector.length == 0) {
+                    log.error("Failed to embed one of the input documents for collection {}", collectionName);
+                    return false;
+                }
+                List<Double> values = new ArrayList<>(vector.length);
+                for (float v : vector) {
+                    values.add((double) v);
+                }
+                embeddings.add(values);
+            }
+            payload.put("embeddings", embeddings);
 
             HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(chromaUrl + "/api/v1/collections/" + collectionId + "/add"))

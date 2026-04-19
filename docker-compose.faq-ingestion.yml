@@ -66,6 +66,32 @@ services:
       - "com.example.description=Spring AI FAQ Ingestion Service"
       - "com.example.version=1.0.0"
 
+  spring-ai-faq-retrieval:
+    build:
+      context: ./spring-ai-faq-retrieval
+      dockerfile: Dockerfile
+    ports:
+      - "${FAQ_RETRIEVAL_PORT:-9010}:9010"
+    env_file: .env
+    environment:
+      SERVER_PORT: 9010
+      RETRIEVAL_SERVICE_PORT: 9010
+    depends_on:
+      chroma:
+        condition: service_healthy
+    networks:
+      - faq-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9010/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    labels:
+      - "com.example.description=Spring AI FAQ Retrieval Service"
+      - "com.example.version=1.0.0"
+
 volumes:
   chroma_faq_data:
     driver: local

@@ -3,9 +3,11 @@ from pydantic import BaseModel, Field
 
 class RagRequest(BaseModel):
     question: str = Field(min_length=1, max_length=500)
+    customerId: str | None = None
 
 
 class RagResponse(BaseModel):
     answer: str
     graphFacts: int
     strategy: str
+    orchestrationStrategy: str

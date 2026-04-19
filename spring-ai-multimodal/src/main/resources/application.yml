@@ -16,3 +16,7 @@ spring:
 
 faq:
   source-file: ${FAQ_SOURCE_FILE:/opt/data/mytechstore-faq.md}
+
+chroma:
+  url: ${APP_CHROMA_URL:http://chroma-faq:8000}
+  collection-prefix: ${APP_CHROMA_COLLECTION_NAME_PREFIX:faq_}

@@ -283,6 +283,7 @@ function App() {
       if (isMultimodalUpload) {
         const formData = new FormData();
         formData.append("question", prompt);
+        formData.append("customerId", trimmedCustomerId);
         formData.append("imageDescription", imageDescription);
         formData.append("image", uploadedImage);
 
@@ -292,8 +293,8 @@ function App() {
         });
       } else {
         const payload = service.id === "multimodal"
-          ? { question: prompt, imageDescription }
-          : { question: prompt };
+          ? { question: prompt, customerId: trimmedCustomerId, imageDescription }
+          : { question: prompt, customerId: trimmedCustomerId };
 
         response = await fetch(`${baseUrl}/query/ask`, {
           method: "POST",
@@ -342,6 +343,7 @@ function App() {
           if (isMultimodalUpload) {
             const formData = new FormData();
             formData.append("question", prompt);
+            formData.append("customerId", trimmedCustomerId);
             formData.append("imageDescription", imageDescription);
             formData.append("image", uploadedImage);
 
@@ -351,8 +353,8 @@ function App() {
             });
           } else {
             const payload = selectedService.id === "multimodal"
-              ? { question: prompt, imageDescription }
-              : { question: prompt };
+              ? { question: prompt, customerId: trimmedCustomerId, imageDescription }
+              : { question: prompt, customerId: trimmedCustomerId };
 
             response = await fetch(`${fw.url}/query/ask`, {
               method: "POST",

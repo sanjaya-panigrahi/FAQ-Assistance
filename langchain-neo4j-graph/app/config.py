@@ -9,6 +9,10 @@ class Settings:
     neo4j_username: str = os.getenv("NEO4J_USERNAME", "neo4j")
     neo4j_password: str = os.getenv("NEO4J_PASSWORD", "neo4jpass")
     openai_chat_model: str = os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini")
+    openai_embedding_model: str = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+    chroma_host: str = os.getenv("CHROMA_HOST", "chroma-faq")
+    chroma_port: int = int(os.getenv("CHROMA_PORT", "8000"))
+    chroma_collection_prefix: str = os.getenv("APP_CHROMA_COLLECTION_NAME_PREFIX", "faq_")
 
 
 settings = Settings()

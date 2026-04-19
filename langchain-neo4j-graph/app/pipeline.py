@@ -1,8 +1,10 @@
-from langchain_openai import ChatOpenAI
+import chromadb
+
+from langchain_chroma import Chroma
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_community.graphs import Neo4jGraph
 
 from .config import settings
-from .faq_parser import parse_faq_documents
 from .schemas import RagResponse
 
 
@@ -17,62 +19,56 @@ class GraphPipeline:
 
     def health(self) -> dict:
         try:
+            chroma = chromadb.HttpClient(host=settings.chroma_host, port=settings.chroma_port)
+            chroma.heartbeat()
             count_rows = self._graph_client.query("MATCH (f:FaqEntry) RETURN count(f) AS total")
             total = int(count_rows[0]["total"]) if count_rows else 0
-            return {"status": "UP", "graphFacts": total}
-        except Exception as exc:  # pragma: no cover
-            return {"status": "DOWN", "error": str(exc)}
+            return {"status": "UP", "graphFacts": total, "backend": "chromadb+neo4j"}
+        except Exception as exc:
+            return {"status": "DEGRADED", "error": str(exc), "backend": "chromadb+neo4j"}
 
     def rebuild_index(self) -> int:
-        docs = parse_faq_documents(settings.faq_source_file)
-        batch = [
-            {
-                "id": doc.metadata["id"],
-                "question": doc.metadata["question"],
-                "answer": doc.metadata["answer"],
-            }
-            for doc in docs
-        ]
-        current_ids = [doc.metadata["id"] for doc in docs]
+        return 0
 
-        self._graph_client.query("CREATE CONSTRAINT faq_id_unique IF NOT EXISTS FOR (f:FaqEntry) REQUIRE f.id IS UNIQUE")
-        self._graph_client.query("CREATE FULLTEXT INDEX faq_fulltext IF NOT EXISTS FOR (f:FaqEntry) ON EACH [f.question, f.answer]")
-        self._graph_client.query(
-            """
-            UNWIND $rows AS row
-            MERGE (f:FaqEntry {id: row.id})
-            SET f.question = row.question, f.answer = row.answer
-            """,
-            {"rows": batch},
+    def ask(self, question: str, customer_id: str | None = None) -> RagResponse:
+        tenant = (customer_id or "default").strip()
+        collection = f"{settings.chroma_collection_prefix}{tenant}"
+
+        embeddings = OpenAIEmbeddings(model=settings.openai_embedding_model)
+        vector_store = Chroma(
+            client=chromadb.HttpClient(host=settings.chroma_host, port=settings.chroma_port),
+            collection_name=collection,
+            embedding_function=embeddings,
         )
-        self._graph_client.query(
-            "MATCH (f:FaqEntry) WHERE NOT f.id IN $ids DETACH DELETE f",
-            {"ids": current_ids},
-        )
+        vector_docs = vector_store.similarity_search(question, k=4)
+        vector_context = "\n\n".join(doc.page_content for doc in vector_docs)
 
-        return len(docs)
-
-    def ask(self, question: str) -> RagResponse:
         rows = self._graph_client.query(
             """
             CALL db.index.fulltext.queryNodes('faq_fulltext', $q) YIELD node, score
-            RETURN node.id AS id, node.question AS question, node.answer AS answer, score
+            RETURN node.question AS question, node.answer AS answer, score
             ORDER BY score DESC
-            LIMIT 5
+            LIMIT 4
             """,
             {"q": question},
         )
-        context = "\n\n".join(f"Q: {row['question']}\nA: {row['answer']}" for row in rows)
+        graph_context = "\n\n".join(f"Q: {row['question']}\nA: {row['answer']}" for row in rows)
 
         answer = self._llm.invoke(
             (
-                "You are a graph-retrieval FAQ assistant. Use the graph context first and answer precisely.\n\n"
+                "You are a graph-retrieval FAQ assistant. Use both vector context and graph context.\n\n"
                 f"Question: {question}\n\n"
-                f"Graph Context:\n{context or 'No matching graph facts found.'}"
+                f"Vector Context:\n{vector_context or 'No vector matches found.'}\n\n"
+                f"Graph Context:\n{graph_context or 'No graph facts found.'}"
             )
         ).content
 
-        return RagResponse(answer=str(answer), graphFacts=len(rows), strategy="neo4j-fulltext-prototype")
+        return RagResponse(
+            answer=str(answer),
+            graphFacts=len(rows),
+            strategy="chroma-direct+neo4j-fulltext",
+            orchestrationStrategy="langchain-graph-prototype",
+        )
 
 
 pipeline = GraphPipeline()

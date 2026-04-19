@@ -12,13 +12,21 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.util.HashMap;
 
 import com.mytechstore.graphrag.dto.RagResponse;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.neo4j.core.Neo4jClient;
 import org.springframework.stereotype.Service;
@@ -40,15 +48,29 @@ public class GraphPipelineService {
         private volatile List<Document> faqEntries = List.of();
         private volatile List<String> indexedVectorDocIds = List.of();
         private volatile String lastFaqDigest = "";
+        private final EmbeddingModel embeddingModel;
+        private final String chromaUrl;
+        private final String collectionPrefix;
+        private final ObjectMapper objectMapper = new ObjectMapper();
+        private final HttpClient httpClient = HttpClient.newBuilder()
+                        .version(HttpClient.Version.HTTP_1_1)
+                        .connectTimeout(Duration.ofSeconds(10))
+                        .build();
 
     public GraphPipelineService(VectorStore vectorStore,
                                 Neo4jClient neo4jClient,
                                 ChatClient chatClient,
-                                @Value("${faq.source-file}") String sourceFile) {
+                                                                @Value("${faq.source-file}") String sourceFile,
+                                                                EmbeddingModel embeddingModel,
+                                                                @Value("${chroma.url:http://chroma-faq:8000}") String chromaUrl,
+                                                                @Value("${chroma.collection-prefix:faq_}") String collectionPrefix) {
         this.vectorStore = vectorStore;
         this.neo4jClient = neo4jClient;
         this.chatClient = chatClient;
         this.sourceFile = sourceFile;
+                this.embeddingModel = embeddingModel;
+                this.chromaUrl = chromaUrl;
+                this.collectionPrefix = collectionPrefix;
     }
 
     public synchronized String rebuildIndex() {
@@ -84,14 +106,22 @@ public class GraphPipelineService {
         return "Indexed " + docs.size() + " FAQ entries into vector and graph layers";
     }
 
-    public RagResponse ask(String question) {
-        if (!indexed.get()) {
-            rebuildIndex();
-        }
-
-        List<Document> vectorHits = vectorStore.similaritySearch(
-                                SearchRequest.builder().query(expandQuery(question)).topK(4).build());
-        String vectorContext = vectorHits.stream().map(Document::getText).collect(Collectors.joining("\n\n"));
+        public RagResponse ask(String question, String customerId) {
+                List<String> chromaChunks = queryChroma(customerId, question, 4);
+                String vectorContext;
+                int vectorCount;
+                if (!chromaChunks.isEmpty()) {
+                        vectorContext = String.join("\n\n", chromaChunks);
+                        vectorCount = chromaChunks.size();
+                } else {
+                        if (!indexed.get()) {
+                                rebuildIndex();
+                        }
+                        List<Document> vectorHits = vectorStore.similaritySearch(
+                                        SearchRequest.builder().query(expandQuery(question)).topK(4).build());
+                        vectorContext = vectorHits.stream().map(Document::getText).collect(Collectors.joining("\n\n"));
+                        vectorCount = vectorHits.size();
+                }
 
                 List<String> tokens = extractSearchTokens(question);
         List<String> graphFacts = neo4jClient.query(
@@ -116,7 +146,53 @@ public class GraphPipelineService {
                 + "Question: " + question;
         String answer = chatClient.prompt().user(prompt).call().content();
 
-        return new RagResponse(answer, vectorHits.size(), graphFacts.size());
+        return new RagResponse(answer, vectorCount, graphFacts.size(), "chroma-direct+neo4j-graph",
+                "springai-neo4j-graph");
+    }
+
+    private List<String> queryChroma(String customerId, String question, int topK) {
+        if (customerId == null || customerId.isBlank()) return List.of();
+        try {
+            String collectionName = collectionPrefix + customerId.trim();
+            HttpRequest getReq = HttpRequest.newBuilder()
+                    .uri(URI.create(chromaUrl + "/api/v1/collections/" + collectionName))
+                    .timeout(Duration.ofSeconds(5)).GET().build();
+            HttpResponse<String> getResp = httpClient.send(getReq, HttpResponse.BodyHandlers.ofString());
+            if (getResp.statusCode() != 200) return List.of();
+
+            @SuppressWarnings("unchecked")
+            Map<String, Object> coll = objectMapper.readValue(getResp.body(), Map.class);
+            String collectionId = String.valueOf(coll.get("id"));
+
+            float[] embArr = embeddingModel.embed(question);
+            List<Float> embedding = new ArrayList<>();
+            for (float f : embArr) embedding.add(f);
+
+            Map<String, Object> queryPayload = new HashMap<>();
+            queryPayload.put("query_embeddings", List.of(embedding));
+            queryPayload.put("n_results", topK);
+            queryPayload.put("include", List.of("documents"));
+
+            HttpRequest queryReq = HttpRequest.newBuilder()
+                    .uri(URI.create(chromaUrl + "/api/v1/collections/" + collectionId + "/query"))
+                    .timeout(Duration.ofSeconds(30))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(queryPayload)))
+                    .build();
+            HttpResponse<String> queryResp = httpClient.send(queryReq, HttpResponse.BodyHandlers.ofString());
+            if (queryResp.statusCode() != 200) return List.of();
+
+            @SuppressWarnings("unchecked")
+            Map<String, Object> result = objectMapper.readValue(queryResp.body(), Map.class);
+            Object docsObj = result.get("documents");
+            if (docsObj instanceof List<?> outer && !((List<?>) outer).isEmpty()
+                    && outer.get(0) instanceof List<?> inner) {
+                return inner.stream().filter(o -> o != null).map(Object::toString).toList();
+            }
+            return List.of();
+        } catch (Exception e) {
+            return List.of();
+        }
     }
 
         private List<Document> parseFaqDocuments() {
