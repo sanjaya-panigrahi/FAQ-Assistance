@@ -1,0 +1,55 @@
+services:
+  konga-db:
+    image: postgres:11-alpine
+    container_name: konga-db
+    environment:
+      POSTGRES_USER: konga
+      POSTGRES_PASSWORD: konga
+      POSTGRES_DB: konga
+    volumes:
+      - konga_db_data_v11:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U konga -d konga"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - faq-network
+    restart: unless-stopped
+
+  konga-prepare:
+    image: pantsel/konga:latest
+    command: -c prepare -a postgres -u postgresql://konga:konga@konga-db:5432/konga
+    depends_on:
+      konga-db:
+        condition: service_healthy
+    networks:
+      - faq-network
+    restart: "no"
+
+  konga:
+    image: pantsel/konga:latest
+    container_name: konga-ui
+    environment:
+      NODE_ENV: production
+      TOKEN_SECRET: change-this-in-production
+      DB_ADAPTER: postgres
+      DB_URI: postgresql://konga:konga@konga-db:5432/konga
+    ports:
+      - "1337:1337"
+    depends_on:
+      konga-db:
+        condition: service_healthy
+      kong:
+        condition: service_started
+    networks:
+      - faq-network
+    restart: unless-stopped
+
+volumes:
+  konga_db_data_v11:
+    driver: local
+
+networks:
+  faq-network:
+    external: false

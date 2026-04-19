@@ -1,0 +1,12 @@
+services:
+  kong:
+    environment:
+      KONG_DNS_RESOLVER: 127.0.0.11:53
+      KONG_DNS_ORDER: LAST,SRV,A,CNAME
+      KONG_DECLARATIVE_CONFIG: /etc/kong/kong-consul.yml
+    volumes:
+      - ./kong/kong-consul.yml:/etc/kong/kong-consul.yml:ro
+    depends_on:
+      - consul
+    extra_hosts:
+      - "consul:127.0.0.11"

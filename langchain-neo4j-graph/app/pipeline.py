@@ -5,6 +5,7 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_community.graphs import Neo4jGraph
 
 from .config import settings
+from .faq_parser import parse_faq_documents
 from .schemas import RagResponse
 
 
@@ -28,7 +29,20 @@ class GraphPipeline:
             return {"status": "DEGRADED", "error": str(exc), "backend": "chromadb+neo4j"}
 
     def rebuild_index(self) -> int:
-        return 0
+        docs = parse_faq_documents(settings.faq_source_file)
+        rows = [
+            {"id": d.metadata["id"], "question": d.metadata["question"], "answer": d.metadata["answer"]}
+            for d in docs
+        ]
+        self._graph_client.query("MATCH (f:FaqEntry) DETACH DELETE f")
+        self._graph_client.query(
+            "UNWIND $rows AS row CREATE (f:FaqEntry {id: row.id, question: row.question, answer: row.answer})",
+            {"rows": rows},
+        )
+        self._graph_client.query(
+            "CREATE FULLTEXT INDEX faq_fulltext IF NOT EXISTS FOR (f:FaqEntry) ON EACH [f.question, f.answer]"
+        )
+        return len(docs)
 
     def ask(self, question: str, customer_id: str | None = None) -> RagResponse:
         tenant = (customer_id or "default").strip()
@@ -43,15 +57,18 @@ class GraphPipeline:
         vector_docs = vector_store.similarity_search(question, k=4)
         vector_context = "\n\n".join(doc.page_content for doc in vector_docs)
 
-        rows = self._graph_client.query(
-            """
-            CALL db.index.fulltext.queryNodes('faq_fulltext', $q) YIELD node, score
-            RETURN node.question AS question, node.answer AS answer, score
-            ORDER BY score DESC
-            LIMIT 4
-            """,
-            {"q": question},
-        )
+        try:
+            rows = self._graph_client.query(
+                """
+                CALL db.index.fulltext.queryNodes('faq_fulltext', $q) YIELD node, score
+                RETURN node.question AS question, node.answer AS answer, score
+                ORDER BY score DESC
+                LIMIT 4
+                """,
+                {"q": question},
+            )
+        except Exception:
+            rows = []
         graph_context = "\n\n".join(f"Q: {row['question']}\nA: {row['answer']}" for row in rows)
 
         answer = self._llm.invoke(

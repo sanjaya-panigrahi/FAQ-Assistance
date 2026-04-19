@@ -15,6 +15,10 @@ LANGGRAPH_PORTS=(8281 8282 8283 8284 8285)
 
 REBUILD_MODE="none"
 REBUILD_SERVICES=""
+WITH_KONG="false"
+WITH_CONSUL="false"
+WITH_KONG_CONSUL="false"
+WITH_KONGA="false"
 
 usage() {
     cat <<'EOF'
@@ -25,6 +29,10 @@ Options:
                            Default: none
   --rebuild-services <csv> Rebuild only specific services (by id or port).
                            Example: --rebuild-services spring-agentic,langgraph-neo4j,8183
+    --with-kong              Include Kong gateway overlay
+    --with-consul            Include Consul discovery overlay
+    --with-kong-consul       Use Kong with Consul DNS discovery (requires --with-kong --with-consul)
+    --with-konga             Include Konga UI overlay (requires --with-kong)
   -h, --help               Show this help message
 
 Service IDs:
@@ -36,6 +44,8 @@ Examples:
   ./run-all-stacks.sh
   ./run-all-stacks.sh --rebuild spring
   ./run-all-stacks.sh --rebuild-services spring-agentic,langchain-agentic
+    ./run-all-stacks.sh --with-kong
+    ./run-all-stacks.sh --with-kong --with-consul --with-kong-consul --with-konga
 EOF
 }
 
@@ -58,6 +68,22 @@ while [[ $# -gt 0 ]]; do
             fi
             REBUILD_SERVICES="$2"
             shift 2
+            ;;
+        --with-kong)
+            WITH_KONG="true"
+            shift
+            ;;
+        --with-consul)
+            WITH_CONSUL="true"
+            shift
+            ;;
+        --with-kong-consul)
+            WITH_KONG_CONSUL="true"
+            shift
+            ;;
+        --with-konga)
+            WITH_KONGA="true"
+            shift
             ;;
         -h|--help)
             usage
@@ -162,13 +188,43 @@ echo -e "${GREEN}✓ Docker found${NC}"
 
 if docker compose version &> /dev/null; then
     COMPOSE_CMD="docker compose"
+    COMPOSE_BIN=(docker compose)
 elif command -v docker-compose &> /dev/null; then
     COMPOSE_CMD="docker-compose"
+    COMPOSE_BIN=(docker-compose)
 else
     echo -e "${RED}✗ Docker Compose not found. Please install Docker Compose.${NC}"
     exit 1
 fi
 echo -e "${GREEN}✓ Docker Compose found (${COMPOSE_CMD})${NC}"
+
+COMPOSE_FILES=(-f docker-compose.master.yml)
+
+if [[ "$WITH_CONSUL" == "true" ]]; then
+    COMPOSE_FILES+=(-f docker-compose.consul.yml)
+fi
+
+if [[ "$WITH_KONG" == "true" ]]; then
+    COMPOSE_FILES+=(-f docker-compose.kong.yml)
+fi
+
+if [[ "$WITH_KONG_CONSUL" == "true" ]]; then
+    if [[ "$WITH_KONG" != "true" || "$WITH_CONSUL" != "true" ]]; then
+        echo -e "${RED}--with-kong-consul requires both --with-kong and --with-consul${NC}"
+        exit 1
+    fi
+    COMPOSE_FILES+=(-f docker-compose.kong-consul.yml)
+fi
+
+if [[ "$WITH_KONGA" == "true" ]]; then
+    if [[ "$WITH_KONG" != "true" ]]; then
+        echo -e "${RED}--with-konga requires --with-kong${NC}"
+        exit 1
+    fi
+    COMPOSE_FILES+=(-f docker-compose.konga.yml)
+fi
+
+echo -e "${BLUE}Compose overlays:${NC} ${COMPOSE_FILES[*]}"
 
 if ! command -v curl &> /dev/null; then
     echo -e "${RED}✗ curl not found. Please install curl.${NC}"
@@ -188,8 +244,8 @@ if [ ! -f .env ]; then
 fi
 
 # Start all services
-echo -e "${BLUE}Starting all stacks (Spring AI, LangChain, LangGraph)...${NC}"
-$COMPOSE_CMD -f docker-compose.master.yml up --build -d
+echo -e "${BLUE}Starting selected stack overlays...${NC}"
+"${COMPOSE_BIN[@]}" "${COMPOSE_FILES[@]}" up --build -d
 
 if [ $? -ne 0 ]; then
     echo -e "${RED}✗ Failed to start containers${NC}"
@@ -258,6 +314,40 @@ if echo "$response" | grep -q '"status":"UP"'; then
 else
     echo -e "${RED}✗ FAQ Retrieval (port 9010): DOWN${NC}"
 fi
+
+if [[ "$WITH_KONG" == "true" ]]; then
+    response=$(curl -s --max-time 5 http://localhost:9081/services 2>/dev/null)
+    if [[ -n "$response" ]]; then
+        echo -e "${GREEN}✓ Kong Admin (port 9081): UP${NC}"
+    else
+        echo -e "${RED}✗ Kong Admin (port 9081): DOWN${NC}"
+    fi
+
+    response=$(curl -s --max-time 5 http://localhost:9080/spring/agentic/actuator/health 2>/dev/null)
+    if echo "$response" | grep -q '"status":"UP"'; then
+        echo -e "${GREEN}✓ Kong Proxy (port 9080): UP${NC}"
+    else
+        echo -e "${RED}✗ Kong Proxy (port 9080): DOWN${NC}"
+    fi
+fi
+
+if [[ "$WITH_CONSUL" == "true" ]]; then
+    response=$(curl -s --max-time 5 http://localhost:8500/v1/status/leader 2>/dev/null)
+    if [[ -n "$response" ]]; then
+        echo -e "${GREEN}✓ Consul (port 8500): UP${NC}"
+    else
+        echo -e "${RED}✗ Consul (port 8500): DOWN${NC}"
+    fi
+fi
+
+if [[ "$WITH_KONGA" == "true" ]]; then
+    code=$(curl -s -o /dev/null --max-time 5 -w '%{http_code}' http://localhost:1337 2>/dev/null || true)
+    if [[ "$code" == "200" || "$code" == "302" ]]; then
+        echo -e "${GREEN}✓ Konga (port 1337): UP${NC}"
+    else
+        echo -e "${RED}✗ Konga (port 1337): DOWN${NC}"
+    fi
+fi
 echo ""
 
 collect_rebuild_ports
@@ -290,6 +380,16 @@ echo -e "  Main UI:              ${GREEN}http://localhost:5173${NC}"
 echo -e "  FAQ Ingestion API:    ${GREEN}http://localhost:9000/api/faq-ingestion/health${NC}"
 echo -e "  FAQ Retrieval API:    ${GREEN}http://localhost:9010/actuator/health${NC}"
 echo -e "  H2 Console:           ${GREEN}http://localhost:9000/h2-console${NC}"
+if [[ "$WITH_KONG" == "true" ]]; then
+    echo -e "  Kong Proxy:           ${GREEN}http://localhost:9080${NC}"
+    echo -e "  Kong Admin API:       ${GREEN}http://localhost:9081${NC}"
+fi
+if [[ "$WITH_CONSUL" == "true" ]]; then
+    echo -e "  Consul UI/API:        ${GREEN}http://localhost:8500${NC}"
+fi
+if [[ "$WITH_KONGA" == "true" ]]; then
+    echo -e "  Konga UI:             ${GREEN}http://localhost:1337${NC}"
+fi
 echo ""
 echo -e "${BLUE}📖 Quick Test Commands:${NC}"
 echo -e "  Compare all backends:"
@@ -302,5 +402,5 @@ echo -e "  Test LangGraph (neo4j-graph):"
 echo -e "    ${YELLOW}curl -X POST http://localhost:8282/api/query/ask -H 'Content-Type: application/json' -d '{\"question\":\"What is your return policy?\"}'${NC}"
 echo ""
 echo -e "${BLUE}🛑 To stop all services:${NC}"
-echo -e "  ${YELLOW}${COMPOSE_CMD} -f docker-compose.master.yml down${NC}"
+echo -e "  ${YELLOW}${COMPOSE_CMD} ${COMPOSE_FILES[*]} down${NC}"
 echo ""

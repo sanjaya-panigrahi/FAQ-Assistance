@@ -24,6 +24,11 @@ export OPENAI_API_KEY="your-key-here"
 # Optional: rebuild only selected indexes
 ./run-all-stacks.sh --rebuild spring
 ./run-all-stacks.sh --rebuild-services spring-agentic,langchain-agentic
+
+# Optional overlays
+./run-all-stacks.sh --with-kong
+./run-all-stacks.sh --with-kong --with-consul --with-kong-consul
+./run-all-stacks.sh --with-kong --with-konga
 ```
 
 This script will:
@@ -50,6 +55,11 @@ This script will:
 # Rebuild only specific services (IDs or ports)
 ./quickstart.sh --rebuild-services spring-agentic,langgraph-neo4j
 ./quickstart.sh --rebuild-services 8081,8282
+
+# Optional overlays
+./quickstart.sh --with-kong
+./quickstart.sh --with-kong --with-consul --with-kong-consul
+./quickstart.sh --with-kong --with-konga
 ```
 
 Supported service IDs:

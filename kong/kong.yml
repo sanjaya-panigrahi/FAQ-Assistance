@@ -1,0 +1,139 @@
+_format_version: "3.0"
+_transform: true
+
+services:
+  - name: spring-agentic
+    url: http://spring-ai-agentic:9000
+    routes:
+      - name: spring-agentic-route
+        paths:
+          - /spring/agentic
+        strip_path: true
+
+  - name: spring-neo4j-graph
+    url: http://spring-ai-neo4j-graph:9000
+    routes:
+      - name: spring-neo4j-graph-route
+        paths:
+          - /spring/graph
+        strip_path: true
+
+  - name: spring-corrective
+    url: http://spring-ai-corrective:9000
+    routes:
+      - name: spring-corrective-route
+        paths:
+          - /spring/corrective
+        strip_path: true
+
+  - name: spring-multimodal
+    url: http://spring-ai-multimodal:9000
+    routes:
+      - name: spring-multimodal-route
+        paths:
+          - /spring/multimodal
+        strip_path: true
+
+  - name: spring-hierarchical
+    url: http://spring-ai-hierarchical:9000
+    routes:
+      - name: spring-hierarchical-route
+        paths:
+          - /spring/hierarchical
+        strip_path: true
+
+  - name: faq-ingestion
+    url: http://faq-ingestion:9000
+    routes:
+      - name: faq-ingestion-route
+        paths:
+          - /spring/ingestion
+        strip_path: true
+
+  - name: spring-faq-retrieval
+    url: http://spring-ai-faq-retrieval:9010
+    routes:
+      - name: spring-faq-retrieval-route
+        paths:
+          - /spring/retrieval
+        strip_path: true
+
+  - name: langchain-agentic
+    url: http://langchain-agentic:8000
+    routes:
+      - name: langchain-agentic-route
+        paths:
+          - /langchain/agentic
+        strip_path: true
+
+  - name: langchain-neo4j-graph
+    url: http://langchain-neo4j-graph:8000
+    routes:
+      - name: langchain-neo4j-graph-route
+        paths:
+          - /langchain/graph
+        strip_path: true
+
+  - name: langchain-corrective
+    url: http://langchain-corrective:8000
+    routes:
+      - name: langchain-corrective-route
+        paths:
+          - /langchain/corrective
+        strip_path: true
+
+  - name: langchain-multimodal
+    url: http://langchain-multimodal:8000
+    routes:
+      - name: langchain-multimodal-route
+        paths:
+          - /langchain/multimodal
+        strip_path: true
+
+  - name: langchain-hierarchical
+    url: http://langchain-hierarchical:8000
+    routes:
+      - name: langchain-hierarchical-route
+        paths:
+          - /langchain/hierarchical
+        strip_path: true
+
+  - name: langgraph-agentic
+    url: http://langgraph-agentic:8000
+    routes:
+      - name: langgraph-agentic-route
+        paths:
+          - /langgraph/agentic
+        strip_path: true
+
+  - name: langgraph-neo4j-graph
+    url: http://langgraph-neo4j-graph:8000
+    routes:
+      - name: langgraph-neo4j-graph-route
+        paths:
+          - /langgraph/graph
+        strip_path: true
+
+  - name: langgraph-corrective
+    url: http://langgraph-corrective:8000
+    routes:
+      - name: langgraph-corrective-route
+        paths:
+          - /langgraph/corrective
+        strip_path: true
+
+  - name: langgraph-multimodal
+    url: http://langgraph-multimodal:8000
+    routes:
+      - name: langgraph-multimodal-route
+        paths:
+          - /langgraph/multimodal
+        strip_path: true
+
+  - name: langgraph-hierarchical
+    url: http://langgraph-hierarchical:8000
+    routes:
+      - name: langgraph-hierarchical-route
+        paths:
+          - /langgraph/hierarchical
+        strip_path: true

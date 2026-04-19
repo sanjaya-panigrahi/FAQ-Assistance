@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-const ingestionApiUrl = "http://localhost:9000/api/faq-ingestion";
+const kongGatewayUrl = "http://localhost:9080";
+const ingestionApiUrl = `${kongGatewayUrl}/spring/ingestion/api/faq-ingestion`;
 const fallbackCustomers = [
   { customerId: "mytechstore", name: "mytechstore" },
 ];
@@ -16,25 +17,25 @@ const services = [
 // Base URLs keyed by [framework][serviceId]
 const serviceUrls = {
   "spring-ai": {
-    agentic:      "http://localhost:8081/api",
-    graph:        "http://localhost:8082/api",
-    corrective:   "http://localhost:8083/api",
-    multimodal:   "http://localhost:8084/api",
-    hierarchical: "http://localhost:8085/api",
+    agentic:      `${kongGatewayUrl}/spring/agentic/api`,
+    graph:        `${kongGatewayUrl}/spring/graph/api`,
+    corrective:   `${kongGatewayUrl}/spring/corrective/api`,
+    multimodal:   `${kongGatewayUrl}/spring/multimodal/api`,
+    hierarchical: `${kongGatewayUrl}/spring/hierarchical/api`,
   },
   langchain: {
-    agentic:      "http://localhost:8181/api",
-    graph:        "http://localhost:8182/api",
-    corrective:   "http://localhost:8183/api",
-    multimodal:   "http://localhost:8184/api",
-    hierarchical: "http://localhost:8185/api",
+    agentic:      `${kongGatewayUrl}/langchain/agentic/api`,
+    graph:        `${kongGatewayUrl}/langchain/graph/api`,
+    corrective:   `${kongGatewayUrl}/langchain/corrective/api`,
+    multimodal:   `${kongGatewayUrl}/langchain/multimodal/api`,
+    hierarchical: `${kongGatewayUrl}/langchain/hierarchical/api`,
   },
   langgraph: {
-    agentic:      "http://localhost:8281/api",
-    graph:        "http://localhost:8282/api",
-    corrective:   "http://localhost:8283/api",
-    multimodal:   "http://localhost:8284/api",
-    hierarchical: "http://localhost:8285/api",
+    agentic:      `${kongGatewayUrl}/langgraph/agentic/api`,
+    graph:        `${kongGatewayUrl}/langgraph/graph/api`,
+    corrective:   `${kongGatewayUrl}/langgraph/corrective/api`,
+    multimodal:   `${kongGatewayUrl}/langgraph/multimodal/api`,
+    hierarchical: `${kongGatewayUrl}/langgraph/hierarchical/api`,
   },
 };
 
@@ -104,7 +105,8 @@ function App() {
   const trimmedNewCustomerName = newCustomerName.trim();
   const hasQuestion = trimmedQuestion.length > 0;
   const hasTranscript = transcript.length > 0;
-  const canAsk = !loading && !uploadingFaq && hasQuestion;
+  const searchEnabled = selectedServiceId === "agentic" || selectedServiceId === "graph";
+  const canAsk = searchEnabled && !loading && !uploadingFaq && hasQuestion;
   const canExport = !loading && hasTranscript;
   const canStartNewConversation = !loading && (hasTranscript || Boolean(error) || Boolean(uploadedFaqName));
   const canUploadFaq = !loading && !uploadingFaq && trimmedCustomerId.length > 0;
@@ -680,24 +682,17 @@ function App() {
             <button type="button" className="accent-solid" onClick={exportTranscript} disabled={!canExport}>
               Export Transcript
             </button>
-            <button type="button" className="accent-solid" onClick={() => fileInputRef.current?.click()} disabled={!canUploadFaq}>
-              Select FAQ
-            </button>
             <button type="button" className="accent-soft" onClick={() => setDocumentManagerOpen((currentValue) => !currentValue)}>
               {documentManagerOpen ? "Hide document tools" : "Manage FAQ documents"}
             </button>
-            <input
-              ref={fileInputRef}
-              className="hidden-input"
-              type="file"
-              accept=".pdf,.md,.yaml,.yml,.doc,.docx,.txt,.png,.jpg,.jpeg"
-              onChange={handleFaqSelection}
-            />
           </div>
 
-          {uploadedFaqName && <p className="supporting-note">Selected FAQ file: {uploadedFaqName}</p>}
           <p className="supporting-note">{customerStatus}</p>
-          {faqUploadStatus && <p className="supporting-note">{faqUploadStatus}</p>}
+          {!searchEnabled && (
+            <p className="supporting-note">
+              Search is temporarily enabled only for Agentic RAG and Graph RAG.
+            </p>
+          )}
           {mode === "compare" && (
             <p className="supporting-note">
               Compare mode shows the selected RAG pattern for all frameworks for the selected customer.
@@ -711,7 +706,7 @@ function App() {
           {mode !== "compare" && (
             <p className="supporting-note">
               Framework is set to <strong>{frameworkOptions.find((f) => f.value === framework)?.label}</strong>. 
-              API requests are routed to the corresponding backend ({framework === "spring-ai" ? "ports 8081-8085" : framework === "langchain" ? "ports 8181-8185" : "ports 8281-8285"}).
+              API requests are routed through Kong gateway on port 9080 ({framework === "spring-ai" ? "/spring/*" : framework === "langchain" ? "/langchain/*" : "/langgraph/*"}).
             </p>
           )}
           {error && <p className="error-banner">{error}</p>}
@@ -729,36 +724,6 @@ function App() {
               </div>
 
               <div className="document-manager-grid">
-                <div className="manager-panel">
-                  <p className="meta-title">Upload FAQ</p>
-                  <p className="supporting-note">Choose a customer, select a supported document, then push it into the Spring AI ingestion service.</p>
-                  <div className="upload-summary">
-                    <p><strong>Customer:</strong> {trimmedCustomerId || "None selected"}</p>
-                    <p><strong>File:</strong> {selectedFaqFile?.name || uploadedFaqName || "No file selected"}</p>
-                  </div>
-                  <div className="toolbar-actions compact-actions">
-                    <button type="button" className="accent-solid" onClick={handleFaqUpload} disabled={!selectedFaqFile || !canUploadFaq}>
-                      {uploadingFaq ? "Uploading..." : "Upload and index"}
-                    </button>
-                    <button type="button" className="accent-soft" onClick={() => fileInputRef.current?.click()} disabled={uploadingFaq}>
-                      Change file
-                    </button>
-                  </div>
-                  <p className="supporting-note">Supported: PDF, Markdown, YAML, DOC, DOCX, TXT, PNG, JPG, JPEG.</p>
-
-                  {faqUploadResult && (
-                    <div className="upload-result success-panel">
-                      <p className="meta-title">Latest Indexed Document</p>
-                      <ul>
-                        <li><strong>Name:</strong> {faqUploadResult.originalFileName}</li>
-                        <li><strong>Status:</strong> {faqUploadResult.processingStatus}</li>
-                        <li><strong>Structure:</strong> {faqUploadResult.detectedStructure || "Auto-detection pending"}</li>
-                        <li><strong>Chunks:</strong> {faqUploadResult.indexedChunkCount ?? faqUploadResult.chunkCount ?? 0}</li>
-                      </ul>
-                    </div>
-                  )}
-                </div>
-
                 <form className="manager-panel" onSubmit={handleCreateCustomer}>
                   <p className="meta-title">Create Customer</p>
                   <label>
