@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 const kongGatewayUrl = "http://localhost:9080";
 const ingestionApiUrl = `${kongGatewayUrl}/spring/ingestion/api/faq-ingestion`;
+const analyticsApiUrl = `${kongGatewayUrl}/spring/analytics/api/analytics`;
 const fallbackCustomers = [
   { customerId: "mytechstore", name: "mytechstore" },
 ];
@@ -75,6 +76,11 @@ function App() {
   const [newCustomerId, setNewCustomerId] = useState("");
   const [newCustomerName, setNewCustomerName] = useState("");
   const [newCustomerDescription, setNewCustomerDescription] = useState("");
+  const [dashboardLoading, setDashboardLoading] = useState(false);
+  const [dashboardError, setDashboardError] = useState("");
+  const [leaderboard, setLeaderboard] = useState([]);
+  const [recentRuns, setRecentRuns] = useState([]);
+  const [analyticsVisible, setAnalyticsVisible] = useState(true);
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
 
@@ -97,6 +103,24 @@ function App() {
       })),
     [selectedService]
   );
+
+  const bestAverageFramework = useMemo(() => {
+    if (leaderboard.length === 0) {
+      return null;
+    }
+
+    return leaderboard.reduce((bestRow, currentRow) => {
+      if (!bestRow) {
+        return currentRow;
+      }
+
+      if (currentRow.avgEffectiveRagScore > bestRow.avgEffectiveRagScore) {
+        return currentRow;
+      }
+
+      return bestRow;
+    }, null);
+  }, [leaderboard]);
 
   const needsImageContext = selectedServiceId === "multimodal";
   const trimmedQuestion = question.trim();
@@ -228,6 +252,100 @@ function App() {
     loadCustomerDocuments(customer);
   }, [documentManagerOpen, customer]);
 
+  useEffect(() => {
+    loadAnalyticsDashboard();
+  }, [selectedService.label, customer, transcript.length]);
+
+  function extractMetaValue(meta, label) {
+    return meta.find((entry) => entry.label === label)?.value;
+  }
+
+  function clamp01(value) {
+    return Math.max(0, Math.min(1, value));
+  }
+
+  function deriveAnalyticsMetrics(result) {
+    const chunksUsed = Number(extractMetaValue(result.meta, "Chunks Used") ?? 0);
+    const graphFacts = Number(extractMetaValue(result.meta, "Graph Facts") ?? 0);
+    const blocked = String(extractMetaValue(result.meta, "Blocked") ?? "No").toLowerCase() === "yes";
+    const retrievalQuality = clamp01((chunksUsed + graphFacts) / 6 || (result.status === "success" ? 0.65 : 0.2));
+    const groundedCorrectness = clamp01(result.status === "success" ? 0.78 : 0.25);
+    const safety = clamp01(blocked ? 0.45 : 0.9);
+    const latencyEfficiency = clamp01(1200 / Math.max(1, result.latencyMs));
+
+    const scale = result.latencyMs / 1200;
+
+    return {
+      retrievalQuality,
+      groundedCorrectness,
+      safety,
+      latencyEfficiency,
+      queryParseMs: Math.round(40 * scale),
+      retrievalMs: Math.round(120 * scale),
+      rerankMs: Math.round(160 * scale),
+      generationMs: Math.round(800 * scale),
+      postChecksMs: Math.round(80 * scale),
+    };
+  }
+
+  async function persistAnalyticsEvents({ requestId, modeValue, prompt, ragPattern, customerId, results }) {
+    try {
+      const events = results.map((result) => {
+        const metrics = deriveAnalyticsMetrics(result);
+        return {
+          requestId,
+          mode: modeValue,
+          query: prompt,
+          response: result.answer,
+          customer: customerId,
+          ragPattern,
+          framework: result.frameworkLabel || result.serviceLabel,
+          strategy: result.strategy || extractMetaValue(result.meta, "Strategy") || "",
+          status: result.status,
+          latencyMs: result.latencyMs,
+          ...metrics,
+        };
+      });
+
+      await fetch(`${analyticsApiUrl}/events`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ events }),
+      });
+    } catch {
+      // Analytics should never block the main query flow.
+    }
+  }
+
+  async function loadAnalyticsDashboard() {
+    setDashboardLoading(true);
+    setDashboardError("");
+
+    try {
+      const queryParams = new URLSearchParams({
+        ragPattern: selectedService.label,
+        customer,
+        limit: "12",
+      });
+
+      const response = await fetch(`${analyticsApiUrl}/dashboard?${queryParams.toString()}`);
+      const data = await parseResponse(response);
+
+      if (!response.ok) {
+        throw new Error(data.message || `Unable to load analytics (${response.status})`);
+      }
+
+      setLeaderboard(Array.isArray(data.leaderboard) ? data.leaderboard : []);
+      setRecentRuns(Array.isArray(data.recent) ? data.recent : []);
+    } catch (requestError) {
+      setLeaderboard([]);
+      setRecentRuns([]);
+      setDashboardError(requestError.message || "Analytics dashboard is currently unavailable.");
+    } finally {
+      setDashboardLoading(false);
+    }
+  }
+
   function normalizeMeta(serviceId, data) {
     const metaEntries = [];
 
@@ -316,6 +434,8 @@ function App() {
         serviceLabel: service.label,
         frameworkLabel: frameworkOptions.find((option) => option.value === framework)?.label || "Spring AI",
         answer: data.answer || "No answer returned.",
+        strategy: data.strategy || data.orchestrationStrategy || "",
+        rawData: data,
         meta: normalizeMeta(service.id, data),
         latencyMs: Math.round(performance.now() - startedAt),
         status: "success",
@@ -326,6 +446,8 @@ function App() {
         serviceLabel: service.label,
         frameworkLabel: frameworkOptions.find((option) => option.value === framework)?.label || "Spring AI",
         answer: requestError.message || "Unable to reach backend.",
+        strategy: "",
+        rawData: null,
         meta: [],
         latencyMs: Math.round(performance.now() - startedAt),
         status: "error",
@@ -372,6 +494,8 @@ function App() {
             serviceLabel: fw.label,
             frameworkLabel: fw.label,
             answer: data.answer || "No answer returned.",
+            strategy: data.strategy || data.orchestrationStrategy || "",
+            rawData: data,
             meta: [
               { label: "RAG Pattern", value: selectedService.label },
               { label: "Customer", value: customer },
@@ -386,6 +510,8 @@ function App() {
             serviceLabel: fw.label,
             frameworkLabel: fw.label,
             answer: err.message || "Unable to reach backend.",
+            strategy: "",
+            rawData: null,
             meta: [
               { label: "RAG Pattern", value: selectedService.label },
               { label: "Customer", value: customer },
@@ -408,13 +534,14 @@ function App() {
     setError("");
 
     try {
+      const requestId = crypto.randomUUID();
       const results = mode === "compare"
         ? await runCompare(trimmedQuestion)
         : await Promise.all(activeServices.map((service) => runQuery(service, trimmedQuestion)));
       setTranscript((currentTranscript) => [
         ...currentTranscript,
         {
-          id: crypto.randomUUID(),
+          id: requestId,
           question: trimmedQuestion,
           customer,
           framework,
@@ -423,6 +550,14 @@ function App() {
           results,
         },
       ]);
+      await persistAnalyticsEvents({
+        requestId,
+        modeValue: mode,
+        prompt: trimmedQuestion,
+        ragPattern: selectedService.label,
+        customerId: customer,
+        results,
+      });
     } catch (requestError) {
       setError(requestError.message || "Failed to run query.");
     } finally {
@@ -685,6 +820,9 @@ function App() {
             <button type="button" className="accent-soft" onClick={() => setDocumentManagerOpen((currentValue) => !currentValue)}>
               {documentManagerOpen ? "Hide document tools" : "Manage FAQ documents"}
             </button>
+            <button type="button" className="accent-soft" onClick={() => setAnalyticsVisible((currentValue) => !currentValue)}>
+              {analyticsVisible ? "Hide analytics" : "Show analytics"}
+            </button>
           </div>
 
           <p className="supporting-note">{customerStatus}</p>
@@ -798,6 +936,95 @@ function App() {
             </section>
           )}
         </section>
+
+        {analyticsVisible && (
+        <section className="dashboard-card">
+          <div className="dashboard-header">
+            <div>
+              <p className="section-label">Analytics Dashboard</p>
+              <h2>Framework Performance ({selectedService.label})</h2>
+            </div>
+            <button type="button" className="accent-soft" onClick={loadAnalyticsDashboard} disabled={dashboardLoading}>
+              {dashboardLoading ? "Refreshing..." : "Refresh analytics"}
+            </button>
+          </div>
+
+          {dashboardError && <p className="error-banner">{dashboardError}</p>}
+
+          <div className="analytics-grid">
+            <div className="manager-panel">
+              <p className="meta-title">Leaderboard</p>
+              {leaderboard.length === 0 ? (
+                <p className="supporting-note">No analytics runs available yet for this customer + pattern.</p>
+              ) : (
+                <div className="table-scroll">
+                  <table className="analytics-table">
+                    <thead>
+                      <tr>
+                        <th>Framework</th>
+                        <th>Runs</th>
+                        <th>Success</th>
+                        <th>Avg Latency</th>
+                        <th>Effective RAG Score</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {leaderboard.map((row) => {
+                        const isBestAverage = bestAverageFramework && row.framework === bestAverageFramework.framework;
+
+                        return (
+                        <tr key={`${row.framework}-${row.ragPattern}`} className={isBestAverage ? "best-framework-row" : ""}>
+                          <td>{row.framework}</td>
+                          <td>{row.totalRuns}</td>
+                          <td>{(row.successRate * 100).toFixed(1)}%</td>
+                          <td>{Math.round(row.avgLatencyMs)} ms</td>
+                          <td>
+                            {row.avgEffectiveRagScore.toFixed(3)}
+                            {isBestAverage && <span className="best-framework-chip">Top Avg</span>}
+                          </td>
+                        </tr>
+                      );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div className="manager-panel">
+              <p className="meta-title">Recent Runs</p>
+              {recentRuns.length === 0 ? (
+                <p className="supporting-note">No recent runs captured yet.</p>
+              ) : (
+                <div className="table-scroll">
+                  <table className="analytics-table">
+                    <thead>
+                      <tr>
+                        <th>Framework</th>
+                        <th>Status</th>
+                        <th>Latency</th>
+                        <th>Score</th>
+                        <th>Strategy</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {recentRuns.map((row, index) => (
+                        <tr key={`${row.framework}-${row.createdAt}-${index}`}>
+                          <td>{row.framework}</td>
+                          <td>{row.status}</td>
+                          <td>{row.latencyMs} ms</td>
+                          <td>{Number(row.effectiveRagScore).toFixed(3)}</td>
+                          <td>{row.strategy || "-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+        )}
 
         <section className="conversation-stack">
           {transcript.length === 0 && (

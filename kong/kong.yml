@@ -58,6 +58,14 @@ services:
           - /spring/retrieval
         strip_path: true
 
+  - name: rag-analytics
+    url: http://rag-analytics:9191
+    routes:
+      - name: rag-analytics-route
+        paths:
+          - /spring/analytics
+        strip_path: true
+
   - name: langchain-agentic
     url: http://langchain-agentic:8000
     routes:

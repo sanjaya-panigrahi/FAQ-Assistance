@@ -334,6 +334,55 @@ services:
       start_period: 30s
     restart: unless-stopped
 
+  analytics-mysql:
+    image: mysql:8.4
+    container_name: analytics-mysql
+    ports:
+      - "3307:3306"
+    environment:
+      MYSQL_DATABASE: rag_analytics
+      MYSQL_USER: analytics
+      MYSQL_PASSWORD: analyticspass
+      MYSQL_ROOT_PASSWORD: rootpass
+    volumes:
+      - analytics_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-prootpass"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - faq-network
+    restart: unless-stopped
+
+  rag-analytics:
+    build:
+      context: ./rag-analytics
+      dockerfile: Dockerfile
+    container_name: rag-analytics
+    ports:
+      - "9191:9191"
+    environment:
+      APP_PORT: 9191
+      ANALYTICS_DB_HOST: analytics-mysql
+      ANALYTICS_DB_PORT: 3306
+      ANALYTICS_DB_NAME: rag_analytics
+      ANALYTICS_DB_USER: analytics
+      ANALYTICS_DB_PASSWORD: analyticspass
+    depends_on:
+      analytics-mysql:
+        condition: service_healthy
+    networks:
+      - faq-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9191/actuator/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
   # React UI - connects to all three stacks
   faq-ui:
     build:
@@ -357,6 +406,8 @@ volumes:
   faq_chroma:
     driver: local
   faq_metadata:
+    driver: local
+  analytics_mysql_data:
     driver: local
 
 networks:
