@@ -3,22 +3,22 @@ import { useEffect, useMemo, useRef, useState } from "react";
 const kongGatewayUrl = "http://localhost:9080";
 const ingestionApiUrl = `${kongGatewayUrl}/spring/ingestion/api/faq-ingestion`;
 const analyticsApiUrl = `${kongGatewayUrl}/spring/analytics/api/analytics`;
+const analyticsPresetsStorageKey = "faq-assistance.analytics.filter-presets";
+const documentPresetsStorageKey = "faq-assistance.documents.filter-presets";
 const fallbackCustomers = [
   { customerId: "mytechstore", name: "mytechstore" },
 ];
 
 const services = [
   { id: "agentic",    label: "Agentic RAG" },
-  { id: "graph",      label: "Graph RAG" },
-  { id: "corrective", label: "Corrective RAG" },
-  { id: "multimodal", label: "Multimodal RAG" },
-  { id: "hierarchical", label: "Hierarchical RAG" },
+  { id: "pipeline",   label: "RAG Pipeline" },
 ];
 
 // Base URLs keyed by [framework][serviceId]
 const serviceUrls = {
   "spring-ai": {
     agentic:      `${kongGatewayUrl}/spring/agentic/api`,
+    pipeline:     `${kongGatewayUrl}/spring/retrieval/api`,
     graph:        `${kongGatewayUrl}/spring/graph/api`,
     corrective:   `${kongGatewayUrl}/spring/corrective/api`,
     multimodal:   `${kongGatewayUrl}/spring/multimodal/api`,
@@ -26,6 +26,7 @@ const serviceUrls = {
   },
   langchain: {
     agentic:      `${kongGatewayUrl}/langchain/agentic/api`,
+    pipeline:     `${kongGatewayUrl}/langchain/retrieval/api`,
     graph:        `${kongGatewayUrl}/langchain/graph/api`,
     corrective:   `${kongGatewayUrl}/langchain/corrective/api`,
     multimodal:   `${kongGatewayUrl}/langchain/multimodal/api`,
@@ -33,6 +34,7 @@ const serviceUrls = {
   },
   langgraph: {
     agentic:      `${kongGatewayUrl}/langgraph/agentic/api`,
+    pipeline:     `${kongGatewayUrl}/langgraph/retrieval/api`,
     graph:        `${kongGatewayUrl}/langgraph/graph/api`,
     corrective:   `${kongGatewayUrl}/langgraph/corrective/api`,
     multimodal:   `${kongGatewayUrl}/langgraph/multimodal/api`,
@@ -52,7 +54,7 @@ const frameworkOptions = [
 
 function App() {
   const [mode, setMode] = useState("compare");
-  const [selectedServiceId, setSelectedServiceId] = useState("hierarchical");
+  const [selectedServiceId, setSelectedServiceId] = useState("agentic");
   const [framework, setFramework] = useState("spring-ai");
   const [customer, setCustomer] = useState("mytechstore");
   const [customers, setCustomers] = useState(fallbackCustomers);
@@ -73,16 +75,31 @@ function App() {
   const [customerDocuments, setCustomerDocuments] = useState([]);
   const [documentsLoading, setDocumentsLoading] = useState(false);
   const [documentsStatus, setDocumentsStatus] = useState("");
+  const [documentsCustomerFilter, setDocumentsCustomerFilter] = useState("all");
+  const [documentsTypeFilter, setDocumentsTypeFilter] = useState("all");
+  const [documentsStatusFilter, setDocumentsStatusFilter] = useState("all");
+  const [documentsSearchTerm, setDocumentsSearchTerm] = useState("");
+  const [documentPresets, setDocumentPresets] = useState([]);
+  const [newDocumentPresetName, setNewDocumentPresetName] = useState("");
   const [newCustomerId, setNewCustomerId] = useState("");
   const [newCustomerName, setNewCustomerName] = useState("");
   const [newCustomerDescription, setNewCustomerDescription] = useState("");
   const [dashboardLoading, setDashboardLoading] = useState(false);
   const [dashboardError, setDashboardError] = useState("");
-  const [leaderboard, setLeaderboard] = useState([]);
+  const [dashboardRows, setDashboardRows] = useState([]);
+  const [dashboardSummary, setDashboardSummary] = useState([]);
   const [recentRuns, setRecentRuns] = useState([]);
-  const [analyticsVisible, setAnalyticsVisible] = useState(true);
+  const [analyticsVisible, setAnalyticsVisible] = useState(false);
+  const [analyticsCustomerFilter, setAnalyticsCustomerFilter] = useState("all");
+  const [analyticsFrameworkFilter, setAnalyticsFrameworkFilter] = useState("all");
+  const [analyticsPatternFilter, setAnalyticsPatternFilter] = useState("all");
+  const [analyticsSearchTerm, setAnalyticsSearchTerm] = useState("");
+  const [analyticsPresets, setAnalyticsPresets] = useState([]);
+  const [newAnalyticsPresetName, setNewAnalyticsPresetName] = useState("");
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
+  const presetImportInputRef = useRef(null);
+  const documentPresetImportInputRef = useRef(null);
 
   const selectedService = useMemo(
     () => services.find((service) => service.id === selectedServiceId) ?? services[0],
@@ -104,12 +121,179 @@ function App() {
     [selectedService]
   );
 
+  const customerIdsForAnalytics = useMemo(() => {
+    const ids = customers
+      .map((entry) => entry.customerId)
+      .filter((entry) => typeof entry === "string" && entry.trim().length > 0)
+      .map((entry) => entry.trim());
+
+    if (ids.length === 0 && customer) {
+      return [customer.trim()];
+    }
+
+    return Array.from(new Set(ids));
+  }, [customers, customer]);
+
+  const analyticsCustomers = useMemo(
+    () => Array.from(new Set(dashboardRows.map((row) => row.customer))).sort(),
+    [dashboardRows]
+  );
+
+  const analyticsFrameworks = useMemo(
+    () => Array.from(new Set(dashboardRows.map((row) => row.framework))).sort(),
+    [dashboardRows]
+  );
+
+  const analyticsPatterns = useMemo(
+    () => Array.from(new Set(dashboardRows.map((row) => row.ragPattern))).sort(),
+    [dashboardRows]
+  );
+
+  const normalizedAnalyticsSearchTerm = analyticsSearchTerm.trim().toLowerCase();
+
+  const filteredDashboardRows = useMemo(() => {
+    return dashboardRows.filter((row) => {
+      if (analyticsCustomerFilter !== "all" && row.customer !== analyticsCustomerFilter) {
+        return false;
+      }
+      if (analyticsFrameworkFilter !== "all" && row.framework !== analyticsFrameworkFilter) {
+        return false;
+      }
+      if (analyticsPatternFilter !== "all" && row.ragPattern !== analyticsPatternFilter) {
+        return false;
+      }
+
+      if (!normalizedAnalyticsSearchTerm) {
+        return true;
+      }
+
+      const haystack = `${row.ragPattern} ${row.customer} ${row.framework}`.toLowerCase();
+      return haystack.includes(normalizedAnalyticsSearchTerm);
+    });
+  }, [
+    dashboardRows,
+    analyticsCustomerFilter,
+    analyticsFrameworkFilter,
+    analyticsPatternFilter,
+    normalizedAnalyticsSearchTerm,
+  ]);
+
+  const filteredDashboardSummary = useMemo(() => {
+    const aggregateByFramework = new Map();
+
+    filteredDashboardRows.forEach((row) => {
+      const totalRuns = Number(row.totalRuns ?? 0);
+      const runWeight = Math.max(totalRuns, 1);
+      const avgLatencyMs = Number(row.avgLatencyMs ?? 0);
+      const successRate = Number(row.successRate ?? 0);
+      const avgEffectiveRagScore = Number(row.avgEffectiveRagScore ?? 0);
+
+      const currentAggregate = aggregateByFramework.get(row.framework) || {
+        framework: row.framework,
+        runWeight: 0,
+        weightedSuccess: 0,
+        weightedLatency: 0,
+        weightedEffectiveRag: 0,
+      };
+
+      currentAggregate.runWeight += runWeight;
+      currentAggregate.weightedSuccess += successRate * runWeight;
+      currentAggregate.weightedLatency += avgLatencyMs * runWeight;
+      currentAggregate.weightedEffectiveRag += avgEffectiveRagScore * runWeight;
+      aggregateByFramework.set(row.framework, currentAggregate);
+    });
+
+    return Array.from(aggregateByFramework.values())
+      .map((entry) => ({
+        framework: entry.framework,
+        totalRuns: entry.runWeight,
+        successRate: entry.runWeight ? entry.weightedSuccess / entry.runWeight : 0,
+        avgLatencyMs: entry.runWeight ? entry.weightedLatency / entry.runWeight : 0,
+        avgEffectiveRagScore: entry.runWeight ? entry.weightedEffectiveRag / entry.runWeight : 0,
+      }))
+      .sort((leftRow, rightRow) => rightRow.avgEffectiveRagScore - leftRow.avgEffectiveRagScore);
+  }, [filteredDashboardRows]);
+
+  const filteredRecentRuns = useMemo(() => {
+    return recentRuns.filter((row) => {
+      if (analyticsCustomerFilter !== "all" && row.customer !== analyticsCustomerFilter) {
+        return false;
+      }
+      if (analyticsFrameworkFilter !== "all" && row.framework !== analyticsFrameworkFilter) {
+        return false;
+      }
+      if (analyticsPatternFilter !== "all" && row.ragPattern !== analyticsPatternFilter) {
+        return false;
+      }
+
+      if (!normalizedAnalyticsSearchTerm) {
+        return true;
+      }
+
+      const haystack = `${row.ragPattern} ${row.customer} ${row.framework} ${row.status}`.toLowerCase();
+      return haystack.includes(normalizedAnalyticsSearchTerm);
+    });
+  }, [
+    recentRuns,
+    analyticsCustomerFilter,
+    analyticsFrameworkFilter,
+    analyticsPatternFilter,
+    normalizedAnalyticsSearchTerm,
+  ]);
+
+  const analyticsFilterSummary = useMemo(() => {
+    const frameworks = new Set(filteredDashboardRows.map((row) => row.framework));
+    const patterns = new Set(filteredDashboardRows.map((row) => row.ragPattern));
+    const customersSet = new Set(filteredDashboardRows.map((row) => row.customer));
+
+    return {
+      rowCount: filteredDashboardRows.length,
+      frameworkCount: frameworks.size,
+      patternCount: patterns.size,
+      customerCount: customersSet.size,
+    };
+  }, [filteredDashboardRows]);
+
+  const quickFilterChips = useMemo(
+    () => [
+      { id: "all", label: "All", framework: "all", pattern: "all" },
+      { id: "spring-ai", label: "Spring AI", framework: "Spring AI", pattern: "all" },
+      { id: "langchain", label: "LangChain", framework: "LangChain", pattern: "all" },
+      { id: "langgraph", label: "LangGraph", framework: "LangGraph", pattern: "all" },
+      { id: "agentic-rag", label: "Agentic RAG", framework: "all", pattern: "Agentic RAG" },
+      { id: "rag-pipeline", label: "RAG Pipeline", framework: "all", pattern: "RAG Pipeline" },
+    ],
+    []
+  );
+
+  const activeQuickChipId = useMemo(() => {
+    const match = quickFilterChips.find(
+      (chip) => chip.framework === analyticsFrameworkFilter && chip.pattern === analyticsPatternFilter
+    );
+    return match?.id || null;
+  }, [quickFilterChips, analyticsFrameworkFilter, analyticsPatternFilter]);
+
+  const currentAnalyticsFilterState = useMemo(
+    () => ({
+      customer: analyticsCustomerFilter,
+      framework: analyticsFrameworkFilter,
+      pattern: analyticsPatternFilter,
+      search: analyticsSearchTerm,
+    }),
+    [analyticsCustomerFilter, analyticsFrameworkFilter, analyticsPatternFilter, analyticsSearchTerm]
+  );
+
+  const customerIdsAnalyticsKey = useMemo(
+    () => customerIdsForAnalytics.join("|"),
+    [customerIdsForAnalytics]
+  );
+
   const bestAverageFramework = useMemo(() => {
-    if (leaderboard.length === 0) {
+    if (filteredDashboardSummary.length === 0) {
       return null;
     }
 
-    return leaderboard.reduce((bestRow, currentRow) => {
+    return filteredDashboardSummary.reduce((bestRow, currentRow) => {
       if (!bestRow) {
         return currentRow;
       }
@@ -120,7 +304,34 @@ function App() {
 
       return bestRow;
     }, null);
-  }, [leaderboard]);
+  }, [filteredDashboardSummary]);
+
+  const preferredTechBySegment = useMemo(() => {
+    const preferred = new Set();
+    const grouped = new Map();
+
+    filteredDashboardRows.forEach((row) => {
+      const key = `${row.ragPattern}||${row.customer}`;
+      if (!grouped.has(key)) {
+        grouped.set(key, []);
+      }
+      grouped.get(key).push(row);
+    });
+
+    grouped.forEach((rows, key) => {
+      const bestScore = rows.reduce(
+        (best, row) => Math.max(best, Number(row.avgEffectiveRagScore ?? 0)),
+        Number.NEGATIVE_INFINITY
+      );
+      rows.forEach((row) => {
+        if (Number(row.avgEffectiveRagScore ?? 0) === bestScore) {
+          preferred.add(`${key}||${row.framework}`);
+        }
+      });
+    });
+
+    return preferred;
+  }, [filteredDashboardRows]);
 
   const needsImageContext = selectedServiceId === "multimodal";
   const trimmedQuestion = question.trim();
@@ -129,11 +340,11 @@ function App() {
   const trimmedNewCustomerName = newCustomerName.trim();
   const hasQuestion = trimmedQuestion.length > 0;
   const hasTranscript = transcript.length > 0;
-  const searchEnabled = selectedServiceId === "agentic" || selectedServiceId === "graph";
+  const searchEnabled = selectedServiceId === "agentic" || selectedServiceId === "pipeline";
   const canAsk = searchEnabled && !loading && !uploadingFaq && hasQuestion;
   const canExport = !loading && hasTranscript;
   const canStartNewConversation = !loading && (hasTranscript || Boolean(error) || Boolean(uploadedFaqName));
-  const canUploadFaq = !loading && !uploadingFaq && trimmedCustomerId.length > 0;
+  const canUploadFaq = !loading && !uploadingFaq && trimmedCustomerId.length > 0 && Boolean(selectedFaqFile);
   const canCreateCustomer = !customerBusy && trimmedNewCustomerId.length > 0 && trimmedNewCustomerName.length > 0;
   const primaryActionLabel = loading
     ? mode === "compare"
@@ -142,6 +353,91 @@ function App() {
     : mode === "compare"
       ? "Compare all backends"
       : "Run selected backend";
+
+  const documentCustomerOptions = useMemo(
+    () => Array.from(new Set(customerDocuments.map((entry) => entry.customerCode))).sort(),
+    [customerDocuments]
+  );
+
+  const documentTypeOptions = useMemo(
+    () => Array.from(new Set(customerDocuments.map((entry) => String(entry.fileType || "").toUpperCase()).filter(Boolean))).sort(),
+    [customerDocuments]
+  );
+
+  const documentStatusOptions = useMemo(
+    () => Array.from(new Set(customerDocuments.map((entry) => entry.processingStatus).filter(Boolean))).sort(),
+    [customerDocuments]
+  );
+
+  const normalizedDocumentsSearchTerm = documentsSearchTerm.trim().toLowerCase();
+
+  const filteredCustomerDocuments = useMemo(() => {
+    return customerDocuments.filter((entry) => {
+      if (documentsCustomerFilter !== "all" && entry.customerCode !== documentsCustomerFilter) {
+        return false;
+      }
+      const entryFileType = String(entry.fileType || "").toUpperCase();
+      if (documentsTypeFilter !== "all" && entryFileType !== documentsTypeFilter) {
+        return false;
+      }
+      if (documentsStatusFilter !== "all" && entry.processingStatus !== documentsStatusFilter) {
+        return false;
+      }
+      if (!normalizedDocumentsSearchTerm) {
+        return true;
+      }
+      const haystack = `${entry.customerCode} ${entry.originalFileName} ${entry.processingStatus} ${entry.detectedStructure || ""}`.toLowerCase();
+      return haystack.includes(normalizedDocumentsSearchTerm);
+    });
+  }, [
+    customerDocuments,
+    documentsCustomerFilter,
+    documentsTypeFilter,
+    documentsStatusFilter,
+    normalizedDocumentsSearchTerm,
+  ]);
+
+  const documentFilterSummary = useMemo(() => {
+    const customersSet = new Set(filteredCustomerDocuments.map((entry) => entry.customerCode));
+    const statusSet = new Set(filteredCustomerDocuments.map((entry) => entry.processingStatus));
+    const typeSet = new Set(filteredCustomerDocuments.map((entry) => String(entry.fileType || "").toUpperCase()));
+
+    return {
+      rowCount: filteredCustomerDocuments.length,
+      customerCount: customersSet.size,
+      statusCount: statusSet.size,
+      typeCount: typeSet.size,
+    };
+  }, [filteredCustomerDocuments]);
+
+  const documentQuickFilterChips = useMemo(
+    () => [
+      { id: "all", label: "All", status: "all", type: "all" },
+      { id: "completed", label: "Completed", status: "COMPLETED", type: "all" },
+      { id: "processing", label: "Processing", status: "PROCESSING", type: "all" },
+      { id: "failed", label: "Failed", status: "FAILED", type: "all" },
+      { id: "markdown", label: "Markdown", status: "all", type: "MD" },
+      { id: "pdf", label: "PDF", status: "all", type: "PDF" },
+    ],
+    []
+  );
+
+  const activeDocumentQuickChipId = useMemo(() => {
+    const match = documentQuickFilterChips.find(
+      (chip) => chip.status === documentsStatusFilter && chip.type === documentsTypeFilter
+    );
+    return match?.id || null;
+  }, [documentQuickFilterChips, documentsStatusFilter, documentsTypeFilter]);
+
+  const currentDocumentFilterState = useMemo(
+    () => ({
+      customer: documentsCustomerFilter,
+      status: documentsStatusFilter,
+      type: documentsTypeFilter,
+      search: documentsSearchTerm,
+    }),
+    [documentsCustomerFilter, documentsStatusFilter, documentsTypeFilter, documentsSearchTerm]
+  );
 
   async function parseResponse(response) {
     const contentType = response.headers.get("content-type") || "";
@@ -189,30 +485,47 @@ function App() {
     }
   }
 
-  async function loadCustomerDocuments(customerIdToLoad = trimmedCustomerId) {
-    if (!customerIdToLoad) {
+  async function loadCustomerDocuments() {
+    if (!Array.isArray(customers) || customers.length === 0) {
       setCustomerDocuments([]);
-      setDocumentsStatus("Select a customer to inspect indexed FAQ documents.");
+      setDocumentsStatus("No customers available to inspect indexed FAQ documents.");
       return;
     }
 
     setDocumentsLoading(true);
 
     try {
-      const response = await fetch(`${ingestionApiUrl}/customers/${customerIdToLoad}/documents`);
-      const data = await parseResponse(response);
+      const snapshots = await Promise.allSettled(
+        customers.map(async (entry) => {
+          const response = await fetch(`${ingestionApiUrl}/customers/${entry.customerId}/documents`);
+          const data = await parseResponse(response);
 
-      if (!response.ok) {
-        throw new Error(data.message || `Unable to load documents (${response.status})`);
-      }
+          if (!response.ok) {
+            throw new Error(data.message || `Unable to load documents (${response.status})`);
+          }
 
-      const documents = Array.isArray(data) ? data : [];
-      setCustomerDocuments(documents);
-      setDocumentsStatus(
-        documents.length === 0
-          ? `No indexed FAQ documents found for ${customerIdToLoad}.`
-          : `Loaded ${documents.length} document${documents.length === 1 ? "" : "s"} for ${customerIdToLoad}.`
+          const documents = Array.isArray(data) ? data : [];
+          return documents.map((docEntry) => ({
+            ...docEntry,
+            customerCode: entry.customerId,
+            customerName: entry.name || entry.customerId,
+          }));
+        })
       );
+
+      const flattenedDocuments = snapshots
+        .filter((snapshot) => snapshot.status === "fulfilled")
+        .flatMap((snapshot) => snapshot.value);
+      const failedCount = snapshots.filter((snapshot) => snapshot.status === "rejected").length;
+
+      setCustomerDocuments(flattenedDocuments);
+      if (flattenedDocuments.length === 0) {
+        setDocumentsStatus("No indexed FAQ documents found across customers.");
+      } else if (failedCount > 0) {
+        setDocumentsStatus(`Loaded ${flattenedDocuments.length} document${flattenedDocuments.length === 1 ? "" : "s"} with partial errors.`);
+      } else {
+        setDocumentsStatus(`Loaded ${flattenedDocuments.length} document${flattenedDocuments.length === 1 ? "" : "s"} across ${customers.length} customer${customers.length === 1 ? "" : "s"}.`);
+      }
     } catch (requestError) {
       setCustomerDocuments([]);
       setDocumentsStatus(requestError.message || "Failed to load indexed documents.");
@@ -249,12 +562,12 @@ function App() {
       return;
     }
 
-    loadCustomerDocuments(customer);
-  }, [documentManagerOpen, customer]);
+    loadCustomerDocuments();
+  }, [documentManagerOpen, customerIdsAnalyticsKey]);
 
   useEffect(() => {
     loadAnalyticsDashboard();
-  }, [selectedService.label, customer, transcript.length]);
+  }, [customerIdsAnalyticsKey, transcript.length]);
 
   function extractMetaValue(meta, label) {
     return meta.find((entry) => entry.label === label)?.value;
@@ -322,23 +635,132 @@ function App() {
     setDashboardError("");
 
     try {
-      const queryParams = new URLSearchParams({
-        ragPattern: selectedService.label,
-        customer,
-        limit: "12",
-      });
+      const ragPatterns = services.map((service) => service.label);
+      const requests = customerIdsForAnalytics.flatMap((customerIdValue) =>
+        ragPatterns.map((ragPatternValue) => ({
+          customerId: customerIdValue,
+          ragPattern: ragPatternValue,
+        }))
+      );
 
-      const response = await fetch(`${analyticsApiUrl}/dashboard?${queryParams.toString()}`);
-      const data = await parseResponse(response);
+      const results = await Promise.allSettled(
+        requests.map(async ({ customerId, ragPattern }) => {
+          const queryParams = new URLSearchParams({
+            ragPattern,
+            customer: customerId,
+            limit: "20",
+          });
+          const response = await fetch(`${analyticsApiUrl}/dashboard?${queryParams.toString()}`);
+          const data = await parseResponse(response);
 
-      if (!response.ok) {
-        throw new Error(data.message || `Unable to load analytics (${response.status})`);
+          if (!response.ok) {
+            throw new Error(data.message || `Unable to load analytics (${response.status})`);
+          }
+
+          return {
+            customerId,
+            ragPattern,
+            leaderboard: Array.isArray(data.leaderboard) ? data.leaderboard : [],
+            recent: Array.isArray(data.recent) ? data.recent : [],
+          };
+        })
+      );
+
+      const successful = results
+        .filter((entry) => entry.status === "fulfilled")
+        .map((entry) => entry.value);
+      const failed = results.filter((entry) => entry.status === "rejected");
+
+      if (successful.length === 0) {
+        throw new Error("Analytics dashboard is currently unavailable.");
       }
 
-      setLeaderboard(Array.isArray(data.leaderboard) ? data.leaderboard : []);
-      setRecentRuns(Array.isArray(data.recent) ? data.recent : []);
+      const detailRows = [];
+      const aggregateByFramework = new Map();
+      const allRecentRuns = [];
+
+      successful.forEach((snapshot) => {
+        snapshot.leaderboard.forEach((row) => {
+          const totalRuns = Number(row.totalRuns ?? 0);
+          const runWeight = Math.max(totalRuns, 1);
+          const avgLatencyMs = Number(row.avgLatencyMs ?? 0);
+          const successRate = Number(row.successRate ?? 0);
+          const avgEffectiveRagScore = Number(row.avgEffectiveRagScore ?? 0);
+
+          detailRows.push({
+            customer: snapshot.customerId,
+            ragPattern: snapshot.ragPattern,
+            framework: row.framework,
+            totalRuns,
+            successRate,
+            avgLatencyMs,
+            avgEffectiveRagScore,
+          });
+
+          const currentAggregate = aggregateByFramework.get(row.framework) || {
+            framework: row.framework,
+            runWeight: 0,
+            weightedSuccess: 0,
+            weightedLatency: 0,
+            weightedEffectiveRag: 0,
+          };
+
+          currentAggregate.runWeight += runWeight;
+          currentAggregate.weightedSuccess += successRate * runWeight;
+          currentAggregate.weightedLatency += avgLatencyMs * runWeight;
+          currentAggregate.weightedEffectiveRag += avgEffectiveRagScore * runWeight;
+          aggregateByFramework.set(row.framework, currentAggregate);
+        });
+
+        snapshot.recent.forEach((row) => {
+          allRecentRuns.push({
+            ...row,
+            customer: snapshot.customerId,
+            ragPattern: snapshot.ragPattern,
+          });
+        });
+      });
+
+      const nextSummary = Array.from(aggregateByFramework.values())
+        .map((entry) => ({
+          framework: entry.framework,
+          totalRuns: entry.runWeight,
+          successRate: entry.runWeight ? entry.weightedSuccess / entry.runWeight : 0,
+          avgLatencyMs: entry.runWeight ? entry.weightedLatency / entry.runWeight : 0,
+          avgEffectiveRagScore: entry.runWeight ? entry.weightedEffectiveRag / entry.runWeight : 0,
+        }))
+        .sort((leftRow, rightRow) => rightRow.avgEffectiveRagScore - leftRow.avgEffectiveRagScore);
+
+      setDashboardSummary(nextSummary);
+      setDashboardRows(
+        detailRows.sort((leftRow, rightRow) => {
+          const patternCompare = leftRow.ragPattern.localeCompare(rightRow.ragPattern);
+          if (patternCompare !== 0) {
+            return patternCompare;
+          }
+          const customerCompare = leftRow.customer.localeCompare(rightRow.customer);
+          if (customerCompare !== 0) {
+            return customerCompare;
+          }
+          return leftRow.framework.localeCompare(rightRow.framework);
+        })
+      );
+      setRecentRuns(
+        allRecentRuns
+          .sort((leftRow, rightRow) => {
+            const leftTime = new Date(leftRow.createdAt || 0).getTime();
+            const rightTime = new Date(rightRow.createdAt || 0).getTime();
+            return rightTime - leftTime;
+          })
+          .slice(0, 60)
+      );
+
+      if (failed.length > 0) {
+        setDashboardError(`Loaded partial analytics data (${successful.length}/${results.length} views).`);
+      }
     } catch (requestError) {
-      setLeaderboard([]);
+      setDashboardRows([]);
+      setDashboardSummary([]);
       setRecentRuns([]);
       setDashboardError(requestError.message || "Analytics dashboard is currently unavailable.");
     } finally {
@@ -346,11 +768,226 @@ function App() {
     }
   }
 
+  function formatCsvValue(value) {
+    const normalized = String(value ?? "").replace(/"/g, '""');
+    return `"${normalized}"`;
+  }
+
+  function exportAnalyticsMatrix() {
+    if (filteredDashboardRows.length === 0) {
+      return;
+    }
+
+    const header = [
+      "ragPattern",
+      "customer",
+      "framework",
+      "totalRuns",
+      "successRate",
+      "avgLatencyMs",
+      "avgEffectiveRagScore",
+      "isPreferredInSegment",
+    ];
+
+    const lines = [header.map(formatCsvValue).join(",")];
+
+    filteredDashboardRows.forEach((row) => {
+      const preferredKey = `${row.ragPattern}||${row.customer}||${row.framework}`;
+      lines.push(
+        [
+          row.ragPattern,
+          row.customer,
+          row.framework,
+          row.totalRuns,
+          row.successRate,
+          row.avgLatencyMs,
+          row.avgEffectiveRagScore,
+          preferredTechBySegment.has(preferredKey) ? "yes" : "no",
+        ]
+          .map(formatCsvValue)
+          .join(",")
+      );
+    });
+
+    const fileBlob = new Blob([`${lines.join("\n")}\n`], {
+      type: "text/csv;charset=utf-8",
+    });
+    const url = URL.createObjectURL(fileBlob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "analytics-matrix-filtered.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function applyQuickAnalyticsFilters(chip) {
+    setAnalyticsFrameworkFilter(chip.framework);
+    setAnalyticsPatternFilter(chip.pattern);
+  }
+
+  function saveAnalyticsPreset() {
+    const presetName = newAnalyticsPresetName.trim();
+    if (!presetName) {
+      return;
+    }
+
+    setAnalyticsPresets((currentPresets) => {
+      const filtered = currentPresets.filter((entry) => entry.name.toLowerCase() !== presetName.toLowerCase());
+      return [
+        ...filtered,
+        {
+          name: presetName,
+          ...currentAnalyticsFilterState,
+        },
+      ].sort((left, right) => left.name.localeCompare(right.name));
+    });
+    setNewAnalyticsPresetName("");
+  }
+
+  function applyAnalyticsPreset(preset) {
+    setAnalyticsCustomerFilter(preset.customer || "all");
+    setAnalyticsFrameworkFilter(preset.framework || "all");
+    setAnalyticsPatternFilter(preset.pattern || "all");
+    setAnalyticsSearchTerm(preset.search || "");
+  }
+
+  function deleteAnalyticsPreset(presetName) {
+    setAnalyticsPresets((currentPresets) =>
+      currentPresets.filter((entry) => entry.name !== presetName)
+    );
+  }
+
+  function exportAnalyticsPresets() {
+    if (analyticsPresets.length === 0) {
+      return;
+    }
+
+    const fileBlob = new Blob([`${JSON.stringify(analyticsPresets, null, 2)}\n`], {
+      type: "application/json;charset=utf-8",
+    });
+    const url = URL.createObjectURL(fileBlob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "analytics-filter-presets.json";
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function triggerPresetImport() {
+    presetImportInputRef.current?.click();
+  }
+
+  async function handlePresetImport(event) {
+    const selectedFile = event.target.files?.[0];
+    if (!selectedFile) {
+      return;
+    }
+
+    try {
+      const rawContent = await selectedFile.text();
+      const parsed = JSON.parse(rawContent);
+      if (!Array.isArray(parsed)) {
+        throw new Error("Preset file must contain an array.");
+      }
+
+      const importedPresets = parsed
+        .filter((entry) => entry && typeof entry.name === "string")
+        .map((entry) => ({
+          name: entry.name,
+          customer: entry.customer || "all",
+          framework: entry.framework || "all",
+          pattern: entry.pattern || "all",
+          search: entry.search || "",
+        }));
+
+      if (importedPresets.length === 0) {
+        throw new Error("Preset file did not contain any valid entries.");
+      }
+
+      setAnalyticsPresets((currentPresets) => {
+        const merged = [...currentPresets];
+        importedPresets.forEach((incomingPreset) => {
+          const existingIndex = merged.findIndex(
+            (entry) => entry.name.toLowerCase() === incomingPreset.name.toLowerCase()
+          );
+
+          if (existingIndex >= 0) {
+            merged[existingIndex] = incomingPreset;
+          } else {
+            merged.push(incomingPreset);
+          }
+        });
+
+        return merged.sort((left, right) => left.name.localeCompare(right.name));
+      });
+      setError("");
+    } catch (importError) {
+      setError(importError.message || "Failed to import presets.");
+    } finally {
+      event.target.value = "";
+    }
+  }
+
+  function resetAnalyticsFilters() {
+    setAnalyticsCustomerFilter("all");
+    setAnalyticsFrameworkFilter("all");
+    setAnalyticsPatternFilter("all");
+    setAnalyticsSearchTerm("");
+  }
+
+  useEffect(() => {
+    try {
+      const rawValue = window.localStorage.getItem(analyticsPresetsStorageKey);
+      if (!rawValue) {
+        return;
+      }
+
+      const parsed = JSON.parse(rawValue);
+      if (!Array.isArray(parsed)) {
+        return;
+      }
+
+      const nextPresets = parsed
+        .filter((entry) => entry && typeof entry.name === "string")
+        .map((entry) => ({
+          name: entry.name,
+          customer: entry.customer || "all",
+          framework: entry.framework || "all",
+          pattern: entry.pattern || "all",
+          search: entry.search || "",
+        }));
+
+      setAnalyticsPresets(nextPresets);
+    } catch {
+      setAnalyticsPresets([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(analyticsPresetsStorageKey, JSON.stringify(analyticsPresets));
+    } catch {
+      // Ignore storage errors.
+    }
+  }, [analyticsPresets]);
+
   function normalizeMeta(serviceId, data) {
     const metaEntries = [];
 
     if (typeof data.chunksUsed === "number") {
       metaEntries.push({ label: "Chunks Used", value: data.chunksUsed });
+    }
+    if (data.transformedQuery) {
+      metaEntries.push({ label: "Transformed Query", value: data.transformedQuery });
+    }
+    if (typeof data.grounded === "boolean") {
+      metaEntries.push({ label: "Grounded", value: data.grounded ? "Yes" : "No" });
+    }
+    if (typeof data.retrievalLatencyMs === "number") {
+      metaEntries.push({ label: "Retrieval Latency", value: `${data.retrievalLatencyMs} ms` });
+    }
+    if (typeof data.generationLatencyMs === "number") {
+      metaEntries.push({ label: "Generation Latency", value: `${data.generationLatencyMs} ms` });
     }
     if (typeof data.vectorChunks === "number") {
       metaEntries.push({ label: "Vector Chunks", value: data.vectorChunks });
@@ -412,11 +1049,24 @@ function App() {
           body: formData,
         });
       } else {
-        const payload = service.id === "multimodal"
-          ? { question: prompt, customerId: trimmedCustomerId, imageDescription }
-          : { question: prompt, customerId: trimmedCustomerId };
+        let endpoint = `${baseUrl}/query/ask`;
+        let payload;
 
-        response = await fetch(`${baseUrl}/query/ask`, {
+        if (service.id === "pipeline") {
+          endpoint = `${baseUrl}/retrieval/query`;
+          payload = {
+            tenantId: trimmedCustomerId,
+            question: prompt,
+            topK: 4,
+            similarityThreshold: 0.35,
+          };
+        } else if (service.id === "multimodal") {
+          payload = { question: prompt, customerId: trimmedCustomerId, imageDescription };
+        } else {
+          payload = { question: prompt, customerId: trimmedCustomerId };
+        }
+
+        response = await fetch(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -476,11 +1126,24 @@ function App() {
               body: formData,
             });
           } else {
-            const payload = selectedService.id === "multimodal"
-              ? { question: prompt, customerId: trimmedCustomerId, imageDescription }
-              : { question: prompt, customerId: trimmedCustomerId };
+            let endpoint = `${fw.url}/query/ask`;
+            let payload;
 
-            response = await fetch(`${fw.url}/query/ask`, {
+            if (selectedService.id === "pipeline") {
+              endpoint = `${fw.url}/retrieval/query`;
+              payload = {
+                tenantId: trimmedCustomerId,
+                question: prompt,
+                topK: 4,
+                similarityThreshold: 0.35,
+              };
+            } else if (selectedService.id === "multimodal") {
+              payload = { question: prompt, customerId: trimmedCustomerId, imageDescription };
+            } else {
+              payload = { question: prompt, customerId: trimmedCustomerId };
+            }
+
+            response = await fetch(endpoint, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(payload),
@@ -648,7 +1311,7 @@ function App() {
       setFaqUploadResult(data);
       setFaqUploadStatus(`Indexed ${data.originalFileName || selectedFaqFile.name} for ${trimmedCustomerId}.`);
       setUploadedFaqName(data.originalFileName || selectedFaqFile.name);
-      await loadCustomerDocuments(trimmedCustomerId);
+      await loadCustomerDocuments();
       setSelectedFaqFile(null);
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
@@ -722,6 +1385,203 @@ function App() {
     }
 
     setUploadedImage(selectedFile);
+  }
+
+  function applyDocumentQuickFilters(chip) {
+    setDocumentsStatusFilter(chip.status);
+    setDocumentsTypeFilter(chip.type);
+  }
+
+  function saveDocumentPreset() {
+    const presetName = newDocumentPresetName.trim();
+    if (!presetName) {
+      return;
+    }
+
+    setDocumentPresets((currentPresets) => {
+      const filtered = currentPresets.filter((entry) => entry.name.toLowerCase() !== presetName.toLowerCase());
+      return [
+        ...filtered,
+        {
+          name: presetName,
+          ...currentDocumentFilterState,
+        },
+      ].sort((left, right) => left.name.localeCompare(right.name));
+    });
+    setNewDocumentPresetName("");
+  }
+
+  function applyDocumentPreset(preset) {
+    setDocumentsCustomerFilter(preset.customer || "all");
+    setDocumentsStatusFilter(preset.status || "all");
+    setDocumentsTypeFilter(preset.type || "all");
+    setDocumentsSearchTerm(preset.search || "");
+  }
+
+  function deleteDocumentPreset(presetName) {
+    setDocumentPresets((currentPresets) =>
+      currentPresets.filter((entry) => entry.name !== presetName)
+    );
+  }
+
+  function exportDocumentPresets() {
+    if (documentPresets.length === 0) {
+      return;
+    }
+
+    const fileBlob = new Blob([`${JSON.stringify(documentPresets, null, 2)}\n`], {
+      type: "application/json;charset=utf-8",
+    });
+    const url = URL.createObjectURL(fileBlob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "document-filter-presets.json";
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function triggerDocumentPresetImport() {
+    documentPresetImportInputRef.current?.click();
+  }
+
+  async function handleDocumentPresetImport(event) {
+    const selectedFile = event.target.files?.[0];
+    if (!selectedFile) {
+      return;
+    }
+
+    try {
+      const rawContent = await selectedFile.text();
+      const parsed = JSON.parse(rawContent);
+      if (!Array.isArray(parsed)) {
+        throw new Error("Preset file must contain an array.");
+      }
+
+      const importedPresets = parsed
+        .filter((entry) => entry && typeof entry.name === "string")
+        .map((entry) => ({
+          name: entry.name,
+          customer: entry.customer || "all",
+          status: entry.status || "all",
+          type: entry.type || "all",
+          search: entry.search || "",
+        }));
+
+      if (importedPresets.length === 0) {
+        throw new Error("Preset file did not contain any valid entries.");
+      }
+
+      setDocumentPresets((currentPresets) => {
+        const merged = [...currentPresets];
+        importedPresets.forEach((incomingPreset) => {
+          const existingIndex = merged.findIndex(
+            (entry) => entry.name.toLowerCase() === incomingPreset.name.toLowerCase()
+          );
+
+          if (existingIndex >= 0) {
+            merged[existingIndex] = incomingPreset;
+          } else {
+            merged.push(incomingPreset);
+          }
+        });
+
+        return merged.sort((left, right) => left.name.localeCompare(right.name));
+      });
+      setDocumentsStatus("Document presets imported successfully.");
+    } catch (importError) {
+      setDocumentsStatus(importError.message || "Failed to import document presets.");
+    } finally {
+      event.target.value = "";
+    }
+  }
+
+  function resetDocumentFilters() {
+    setDocumentsCustomerFilter("all");
+    setDocumentsTypeFilter("all");
+    setDocumentsStatusFilter("all");
+    setDocumentsSearchTerm("");
+  }
+
+  useEffect(() => {
+    try {
+      const rawValue = window.localStorage.getItem(documentPresetsStorageKey);
+      if (!rawValue) {
+        return;
+      }
+
+      const parsed = JSON.parse(rawValue);
+      if (!Array.isArray(parsed)) {
+        return;
+      }
+
+      const nextPresets = parsed
+        .filter((entry) => entry && typeof entry.name === "string")
+        .map((entry) => ({
+          name: entry.name,
+          customer: entry.customer || "all",
+          status: entry.status || "all",
+          type: entry.type || "all",
+          search: entry.search || "",
+        }));
+
+      setDocumentPresets(nextPresets);
+    } catch {
+      setDocumentPresets([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(documentPresetsStorageKey, JSON.stringify(documentPresets));
+    } catch {
+      // Ignore storage errors.
+    }
+  }, [documentPresets]);
+
+  function exportDocumentInventoryCsv() {
+    if (filteredCustomerDocuments.length === 0) {
+      return;
+    }
+
+    const escapeCsv = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const header = [
+      "customer",
+      "documentName",
+      "fileType",
+      "processingStatus",
+      "detectedStructure",
+      "indexedChunks",
+      "sizeBytes",
+      "indexedAt",
+    ];
+    const lines = [header.map(escapeCsv).join(",")];
+
+    filteredCustomerDocuments.forEach((entry) => {
+      lines.push(
+        [
+          entry.customerCode,
+          entry.originalFileName,
+          String(entry.fileType || "").toUpperCase(),
+          entry.processingStatus,
+          entry.detectedStructure || "",
+          entry.indexedChunkCount ?? entry.chunkCount ?? 0,
+          entry.fileSizeBytes || 0,
+          entry.indexedAt || entry.createdAt || "",
+        ]
+          .map(escapeCsv)
+          .join(",")
+      );
+    });
+
+    const fileBlob = new Blob([`${lines.join("\n")}\n`], {
+      type: "text/csv;charset=utf-8",
+    });
+    const url = URL.createObjectURL(fileBlob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "document-inventory-filtered.csv";
+    link.click();
+    URL.revokeObjectURL(url);
   }
 
   return (
@@ -828,7 +1688,7 @@ function App() {
           <p className="supporting-note">{customerStatus}</p>
           {!searchEnabled && (
             <p className="supporting-note">
-              Search is temporarily enabled only for Agentic RAG and Graph RAG.
+              Search is temporarily enabled only for Agentic RAG and RAG Pipeline.
             </p>
           )}
           {mode === "compare" && (
@@ -900,32 +1760,231 @@ function App() {
                     </button>
                   </div>
                 </form>
+
+                <div className="manager-panel">
+                  <p className="meta-title">Upload FAQ Document</p>
+                  <label>
+                    <span>Target customer</span>
+                    <select value={customer} onChange={(event) => setCustomer(event.target.value)}>
+                      {customers.map((option) => (
+                        <option key={option.customerId} value={option.customerId}>
+                          {option.name} ({option.customerId})
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <p className="supporting-note">
+                    This document will be indexed only for <strong>{trimmedCustomerId || "the selected customer"}</strong>.
+                  </p>
+                  <label>
+                    <span>Choose file</span>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".pdf,.md,.yaml,.yml,.doc,.docx,.txt,.png,.jpg,.jpeg"
+                      onChange={handleFaqSelection}
+                    />
+                  </label>
+                  <p className="supporting-note">
+                    Supported: PDF, Markdown, YAML, DOC/DOCX, TXT, PNG, JPG/JPEG
+                  </p>
+                  {selectedFaqFile && (
+                    <p className="supporting-note">
+                      Selected: <strong>{selectedFaqFile.name}</strong> ({Math.round(selectedFaqFile.size / 1024)} KB) for <strong>{trimmedCustomerId}</strong>
+                    </p>
+                  )}
+                  {faqUploadStatus && <p className="supporting-note">{faqUploadStatus}</p>}
+                  {faqUploadResult && (
+                    <div className="upload-summary">
+                      <p><strong>Uploaded:</strong> {faqUploadResult.originalFileName || uploadedFaqName}</p>
+                      <p><strong>Status:</strong> {faqUploadResult.processingStatus || "Processed"}</p>
+                      <p><strong>Chunks:</strong> {faqUploadResult.indexedChunkCount ?? faqUploadResult.chunkCount ?? 0}</p>
+                    </div>
+                  )}
+                  <div className="toolbar-actions compact-actions">
+                    <button type="button" className="accent-solid" onClick={handleFaqUpload} disabled={!canUploadFaq}>
+                      {uploadingFaq ? "Uploading..." : `Upload FAQ to ${trimmedCustomerId || "customer"}`}
+                    </button>
+                  </div>
+                </div>
               </div>
 
               <div className="manager-panel document-history-panel">
                 <div className="document-history-header">
-                  <p className="meta-title">Indexed Documents</p>
-                  <button type="button" className="accent-soft" onClick={() => loadCustomerDocuments(customer)} disabled={documentsLoading}>
-                    {documentsLoading ? "Refreshing..." : "Refresh documents"}
-                  </button>
+                  <p className="meta-title">Indexed Documents Inventory</p>
+                  <div className="toolbar-actions compact-actions analytics-actions">
+                    <button
+                      type="button"
+                      className="accent-soft"
+                      onClick={exportDocumentInventoryCsv}
+                      disabled={filteredCustomerDocuments.length === 0}
+                    >
+                      Export CSV
+                    </button>
+                    <button type="button" className="accent-soft" onClick={resetDocumentFilters}>
+                      Reset filters
+                    </button>
+                    <button type="button" className="accent-soft" onClick={() => loadCustomerDocuments()} disabled={documentsLoading}>
+                      {documentsLoading ? "Refreshing..." : "Refresh documents"}
+                    </button>
+                  </div>
                 </div>
-                <p className="supporting-note">{documentsStatus || `Viewing indexed documents for ${trimmedCustomerId}.`}</p>
+                <p className="supporting-note">{documentsStatus || "Viewing indexed documents across customers."}</p>
 
-                {customerDocuments.length > 0 ? (
-                  <div className="document-history-list">
-                    {customerDocuments.map((document) => (
-                      <article key={document.id} className="document-history-item">
-                        <div>
-                          <h3>{document.originalFileName}</h3>
-                          <p className="supporting-note">{document.fileType?.toUpperCase()} | {document.processingStatus}</p>
+                <div className="document-quick-strip" role="group" aria-label="Document quick filters">
+                  {documentQuickFilterChips.map((chip) => (
+                    <button
+                      key={chip.id}
+                      type="button"
+                      className={`quick-filter-chip ${activeDocumentQuickChipId === chip.id ? "active" : ""}`}
+                      onClick={() => applyDocumentQuickFilters(chip)}
+                    >
+                      {chip.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="document-filters">
+                  <label>
+                    <span>Customer</span>
+                    <select value={documentsCustomerFilter} onChange={(event) => setDocumentsCustomerFilter(event.target.value)}>
+                      <option value="all">All customers</option>
+                      {documentCustomerOptions.map((entry) => (
+                        <option key={entry} value={entry}>{entry}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label>
+                    <span>Status</span>
+                    <select value={documentsStatusFilter} onChange={(event) => setDocumentsStatusFilter(event.target.value)}>
+                      <option value="all">All status</option>
+                      {documentStatusOptions.map((entry) => (
+                        <option key={entry} value={entry}>{entry}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label>
+                    <span>File Type</span>
+                    <select value={documentsTypeFilter} onChange={(event) => setDocumentsTypeFilter(event.target.value)}>
+                      <option value="all">All types</option>
+                      {documentTypeOptions.map((entry) => (
+                        <option key={entry} value={entry}>{entry}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label>
+                    <span>Search</span>
+                    <input
+                      type="text"
+                      value={documentsSearchTerm}
+                      onChange={(event) => setDocumentsSearchTerm(event.target.value)}
+                      placeholder="Customer, file, structure"
+                    />
+                  </label>
+                </div>
+
+                <div className="document-presets">
+                  <div className="document-preset-create">
+                    <input
+                      type="text"
+                      value={newDocumentPresetName}
+                      onChange={(event) => setNewDocumentPresetName(event.target.value)}
+                      placeholder="Save current document filters as preset"
+                    />
+                    <button
+                      type="button"
+                      className="accent-soft"
+                      onClick={saveDocumentPreset}
+                      disabled={!newDocumentPresetName.trim()}
+                    >
+                      Save preset
+                    </button>
+                    <button
+                      type="button"
+                      className="accent-soft"
+                      onClick={exportDocumentPresets}
+                      disabled={documentPresets.length === 0}
+                    >
+                      Export presets
+                    </button>
+                    <button
+                      type="button"
+                      className="accent-soft"
+                      onClick={triggerDocumentPresetImport}
+                    >
+                      Import presets
+                    </button>
+                    <input
+                      ref={documentPresetImportInputRef}
+                      type="file"
+                      accept="application/json,.json"
+                      className="hidden-input"
+                      onChange={handleDocumentPresetImport}
+                    />
+                  </div>
+
+                  {documentPresets.length > 0 && (
+                    <div className="document-preset-list">
+                      {documentPresets.map((preset) => (
+                        <div key={preset.name} className="document-preset-item">
+                          <button
+                            type="button"
+                            className="quick-filter-chip"
+                            onClick={() => applyDocumentPreset(preset)}
+                          >
+                            {preset.name}
+                          </button>
+                          <button
+                            type="button"
+                            className="preset-delete-btn"
+                            onClick={() => deleteDocumentPreset(preset.name)}
+                            aria-label={`Delete document preset ${preset.name}`}
+                          >
+                            x
+                          </button>
                         </div>
-                        <ul>
-                          <li><strong>Structure:</strong> {document.detectedStructure || "Pending"}</li>
-                          <li><strong>Chunks:</strong> {document.indexedChunkCount ?? document.chunkCount ?? 0}</li>
-                          <li><strong>Size:</strong> {Math.round((document.fileSizeBytes || 0) / 1024)} KB</li>
-                        </ul>
-                      </article>
-                    ))}
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <p className="document-summary-note">
+                  Showing {documentFilterSummary.rowCount} rows | {documentFilterSummary.customerCount} customers | {documentFilterSummary.statusCount} statuses | {documentFilterSummary.typeCount} types
+                </p>
+
+                {filteredCustomerDocuments.length > 0 ? (
+                  <div className="table-scroll table-scroll-y table-scroll-tall">
+                    <table className="analytics-table">
+                      <thead>
+                        <tr>
+                          <th>Customer</th>
+                          <th>Document</th>
+                          <th>Type</th>
+                          <th>Status</th>
+                          <th>Structure</th>
+                          <th>Chunks</th>
+                          <th>Size</th>
+                          <th>Indexed</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredCustomerDocuments.map((document, index) => (
+                          <tr key={`${document.customerCode}-${document.id}-${index}`}>
+                            <td>{document.customerCode}</td>
+                            <td>{document.originalFileName}</td>
+                            <td>{String(document.fileType || "").toUpperCase()}</td>
+                            <td>{document.processingStatus}</td>
+                            <td>{document.detectedStructure || "Pending"}</td>
+                            <td>{document.indexedChunkCount ?? document.chunkCount ?? 0}</td>
+                            <td>{Math.round((document.fileSizeBytes || 0) / 1024)} KB</td>
+                            <td>{document.indexedAt ? new Date(document.indexedAt).toLocaleString() : "-"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 ) : (
                   <div className="upload-summary">
@@ -942,22 +2001,163 @@ function App() {
           <div className="dashboard-header">
             <div>
               <p className="section-label">Analytics Dashboard</p>
-              <h2>Framework Performance ({selectedService.label})</h2>
+              <h2>All RAG Patterns x Frameworks x Customers</h2>
             </div>
-            <button type="button" className="accent-soft" onClick={loadAnalyticsDashboard} disabled={dashboardLoading}>
-              {dashboardLoading ? "Refreshing..." : "Refresh analytics"}
-            </button>
+            <div className="toolbar-actions compact-actions analytics-actions">
+              <button
+                type="button"
+                className="accent-soft"
+                onClick={exportAnalyticsMatrix}
+                disabled={filteredDashboardRows.length === 0}
+              >
+                Export CSV
+              </button>
+              <button type="button" className="accent-soft" onClick={resetAnalyticsFilters}>
+                Reset filters
+              </button>
+              <button type="button" className="accent-soft" onClick={loadAnalyticsDashboard} disabled={dashboardLoading}>
+                {dashboardLoading ? "Refreshing..." : "Refresh analytics"}
+              </button>
+            </div>
           </div>
+
+          <p className="supporting-note">
+            Single-page dashboard for all customers and all RAG patterns. Use the scrollable tables to compare framework preference.
+          </p>
+
+          <div className="quick-filter-strip" role="group" aria-label="Analytics quick filters">
+            {quickFilterChips.map((chip) => (
+              <button
+                key={chip.id}
+                type="button"
+                className={`quick-filter-chip ${activeQuickChipId === chip.id ? "active" : ""}`}
+                onClick={() => applyQuickAnalyticsFilters(chip)}
+              >
+                {chip.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="analytics-filters">
+            <label>
+              <span>Customer</span>
+              <select value={analyticsCustomerFilter} onChange={(event) => setAnalyticsCustomerFilter(event.target.value)}>
+                <option value="all">All customers</option>
+                {analyticsCustomers.map((entry) => (
+                  <option key={entry} value={entry}>{entry}</option>
+                ))}
+              </select>
+            </label>
+
+            <label>
+              <span>Framework</span>
+              <select value={analyticsFrameworkFilter} onChange={(event) => setAnalyticsFrameworkFilter(event.target.value)}>
+                <option value="all">All frameworks</option>
+                {analyticsFrameworks.map((entry) => (
+                  <option key={entry} value={entry}>{entry}</option>
+                ))}
+              </select>
+            </label>
+
+            <label>
+              <span>RAG Pattern</span>
+              <select value={analyticsPatternFilter} onChange={(event) => setAnalyticsPatternFilter(event.target.value)}>
+                <option value="all">All patterns</option>
+                {analyticsPatterns.map((entry) => (
+                  <option key={entry} value={entry}>{entry}</option>
+                ))}
+              </select>
+            </label>
+
+            <label>
+              <span>Search</span>
+              <input
+                type="text"
+                value={analyticsSearchTerm}
+                onChange={(event) => setAnalyticsSearchTerm(event.target.value)}
+                placeholder="Pattern, customer, framework"
+              />
+            </label>
+          </div>
+
+          <div className="analytics-presets">
+            <div className="analytics-preset-create">
+              <input
+                type="text"
+                value={newAnalyticsPresetName}
+                onChange={(event) => setNewAnalyticsPresetName(event.target.value)}
+                placeholder="Save current filters as preset"
+              />
+              <button
+                type="button"
+                className="accent-soft"
+                onClick={saveAnalyticsPreset}
+                disabled={!newAnalyticsPresetName.trim()}
+              >
+                Save preset
+              </button>
+              <button
+                type="button"
+                className="accent-soft"
+                onClick={exportAnalyticsPresets}
+                disabled={analyticsPresets.length === 0}
+              >
+                Export presets
+              </button>
+              <button
+                type="button"
+                className="accent-soft"
+                onClick={triggerPresetImport}
+              >
+                Import presets
+              </button>
+              <input
+                ref={presetImportInputRef}
+                type="file"
+                accept="application/json,.json"
+                className="hidden-input"
+                onChange={handlePresetImport}
+              />
+            </div>
+
+            {analyticsPresets.length > 0 && (
+              <div className="analytics-preset-list">
+                {analyticsPresets.map((preset) => (
+                  <div key={preset.name} className="analytics-preset-item">
+                    <button
+                      type="button"
+                      className="quick-filter-chip"
+                      onClick={() => applyAnalyticsPreset(preset)}
+                    >
+                      {preset.name}
+                    </button>
+                    <button
+                      type="button"
+                      className="preset-delete-btn"
+                      onClick={() => deleteAnalyticsPreset(preset.name)}
+                      aria-label={`Delete preset ${preset.name}`}
+                    >
+                      x
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <p className="analytics-summary-note">
+            Showing {analyticsFilterSummary.rowCount} rows | {analyticsFilterSummary.frameworkCount} frameworks | {analyticsFilterSummary.patternCount} patterns | {analyticsFilterSummary.customerCount} customers
+          </p>
 
           {dashboardError && <p className="error-banner">{dashboardError}</p>}
 
           <div className="analytics-grid">
             <div className="manager-panel">
-              <p className="meta-title">Leaderboard</p>
-              {leaderboard.length === 0 ? (
-                <p className="supporting-note">No analytics runs available yet for this customer + pattern.</p>
+              <p className="meta-title">Overall Framework Preference</p>
+              {filteredDashboardSummary.length === 0 ? (
+                <p className="supporting-note">No analytics runs available yet.</p>
               ) : (
-                <div className="table-scroll">
+                <div className="table-scroll table-scroll-y">
                   <table className="analytics-table">
                     <thead>
                       <tr>
@@ -969,12 +2169,19 @@ function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {leaderboard.map((row) => {
+                      {filteredDashboardSummary.map((row, index) => {
                         const isBestAverage = bestAverageFramework && row.framework === bestAverageFramework.framework;
+                        const frameworkClassName = row.framework?.toLowerCase().replace(/\s+/g, "-");
 
                         return (
-                        <tr key={`${row.framework}-${row.ragPattern}`} className={isBestAverage ? "best-framework-row" : ""}>
-                          <td>{row.framework}</td>
+                        <tr
+                          key={`${row.framework}-${index}`}
+                          className={`${isBestAverage ? "best-framework-row" : ""} framework-row-${frameworkClassName}`.trim()}
+                        >
+                          <td>
+                            {row.framework}
+                            <span className="rank-chip">#{index + 1}</span>
+                          </td>
                           <td>{row.totalRuns}</td>
                           <td>{(row.successRate * 100).toFixed(1)}%</td>
                           <td>{Math.round(row.avgLatencyMs)} ms</td>
@@ -993,28 +2200,30 @@ function App() {
 
             <div className="manager-panel">
               <p className="meta-title">Recent Runs</p>
-              {recentRuns.length === 0 ? (
+              {filteredRecentRuns.length === 0 ? (
                 <p className="supporting-note">No recent runs captured yet.</p>
               ) : (
-                <div className="table-scroll">
+                <div className="table-scroll table-scroll-y">
                   <table className="analytics-table">
                     <thead>
                       <tr>
+                        <th>RAG Pattern</th>
+                        <th>Customer</th>
                         <th>Framework</th>
                         <th>Status</th>
                         <th>Latency</th>
                         <th>Score</th>
-                        <th>Strategy</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {recentRuns.map((row, index) => (
+                      {filteredRecentRuns.map((row, index) => (
                         <tr key={`${row.framework}-${row.createdAt}-${index}`}>
+                          <td>{row.ragPattern}</td>
+                          <td>{row.customer}</td>
                           <td>{row.framework}</td>
                           <td>{row.status}</td>
                           <td>{row.latencyMs} ms</td>
                           <td>{Number(row.effectiveRagScore).toFixed(3)}</td>
-                          <td>{row.strategy || "-"}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1022,6 +2231,52 @@ function App() {
                 </div>
               )}
             </div>
+          </div>
+
+          <div className="manager-panel analytics-full-panel">
+            <p className="meta-title">Detailed Matrix</p>
+            {filteredDashboardRows.length === 0 ? (
+              <p className="supporting-note">No detailed analytics rows available yet.</p>
+            ) : (
+              <div className="table-scroll table-scroll-y table-scroll-tall">
+                <table className="analytics-table">
+                  <thead>
+                    <tr>
+                      <th>RAG Pattern</th>
+                      <th>Customer</th>
+                      <th>Framework</th>
+                      <th>Runs</th>
+                      <th>Success</th>
+                      <th>Avg Latency</th>
+                      <th>Effective RAG Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredDashboardRows.map((row, index) => (
+                      <tr
+                        key={`${row.ragPattern}-${row.customer}-${row.framework}-${index}`}
+                        className={preferredTechBySegment.has(`${row.ragPattern}||${row.customer}||${row.framework}`)
+                          ? "segment-best-row"
+                          : ""}
+                      >
+                        <td>{row.ragPattern}</td>
+                        <td>{row.customer}</td>
+                        <td>
+                          {row.framework}
+                          {preferredTechBySegment.has(`${row.ragPattern}||${row.customer}||${row.framework}`) && (
+                            <span className="segment-best-chip">Preferred</span>
+                          )}
+                        </td>
+                        <td>{row.totalRuns}</td>
+                        <td>{(row.successRate * 100).toFixed(1)}%</td>
+                        <td>{Math.round(row.avgLatencyMs)} ms</td>
+                        <td>{row.avgEffectiveRagScore.toFixed(3)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </section>
         )}

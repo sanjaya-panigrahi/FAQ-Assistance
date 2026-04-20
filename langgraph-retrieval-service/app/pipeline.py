@@ -1,0 +1,228 @@
+import re
+import time
+from typing import TypedDict
+
+import chromadb
+
+from langchain_chroma import Chroma
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langgraph.graph import END, START, StateGraph
+
+from .config import settings
+from .schemas import RetrievedChunk, RetrievalQueryRequest, RetrievalQueryResponse
+
+
+class RetrievalState(TypedDict, total=False):
+    request: RetrievalQueryRequest
+    transformed_query: str
+    candidates: dict
+    ranked_chunks: list[dict]
+    answer: str
+    grounded: bool
+    generation_latency_ms: int
+
+
+class RetrievalPipeline:
+    def __init__(self) -> None:
+        graph = StateGraph(RetrievalState)
+        graph.add_node("transform", self._node_transform_query)
+        graph.add_node("hybrid_retrieve", self._node_hybrid_retrieve)
+        graph.add_node("rerank", self._node_rerank)
+        graph.add_node("generate", self._node_generate)
+
+        graph.add_edge(START, "transform")
+        graph.add_edge("transform", "hybrid_retrieve")
+        graph.add_edge("hybrid_retrieve", "rerank")
+        graph.add_edge("rerank", "generate")
+        graph.add_edge("generate", END)
+
+        self._graph = graph.compile()
+
+    def health(self) -> dict:
+        try:
+            client = chromadb.HttpClient(host=settings.chroma_host, port=settings.chroma_port)
+            client.heartbeat()
+            return {"status": "UP", "backend": "chromadb"}
+        except Exception as exc:
+            return {"status": "DEGRADED", "backend": "chromadb", "error": str(exc)}
+
+    def rebuild_index(self) -> int:
+        return 0
+
+    def query(self, request: RetrievalQueryRequest) -> RetrievalQueryResponse:
+        total_start = time.perf_counter()
+        final_state = self._graph.invoke({"request": request})
+        total_latency_ms = int((time.perf_counter() - total_start) * 1000)
+
+        ranked_chunks = final_state.get("ranked_chunks", [])
+        answer = str(final_state.get("answer", "No answer generated.")).strip()
+        grounded = bool(final_state.get("grounded", False))
+
+        generation_latency_ms = int(final_state.get("generation_latency_ms", 0))
+        retrieval_latency_ms = max(0, total_latency_ms - generation_latency_ms)
+
+        response_chunks = [
+            RetrievedChunk(
+                rank=index + 1,
+                source=item["source"],
+                chunkNumber=item["chunk_number"],
+                score=round(item["rerank_score"], 4),
+                excerpt=item["content"],
+            )
+            for index, item in enumerate(ranked_chunks)
+        ]
+
+        return RetrievalQueryResponse(
+            tenantId=request.tenantId,
+            question=request.question,
+            transformedQuery=str(final_state.get("transformed_query", request.question)),
+            strategy="query-transform+hybrid-retrieval+rerank+grounded-generation(langgraph)",
+            answer=answer,
+            chunksUsed=len(response_chunks),
+            grounded=grounded,
+            retrievalLatencyMs=retrieval_latency_ms,
+            generationLatencyMs=generation_latency_ms,
+            chunks=response_chunks,
+        )
+
+    def _node_transform_query(self, state: RetrievalState) -> RetrievalState:
+        request = state["request"]
+        normalized = request.question.lower()
+        expansions: list[str] = []
+
+        if "return" in normalized or "refund" in normalized:
+            expansions.append("return policy refund window")
+        if "shipping" in normalized or "delivery" in normalized:
+            expansions.append("shipping time delivery options")
+        if "warranty" in normalized or "guarantee" in normalized:
+            expansions.append("warranty coverage support")
+        if request.queryContext:
+            expansions.append(request.queryContext.strip())
+
+        transformed_query = request.question.strip()
+        if expansions:
+            transformed_query = f"{transformed_query} {' '.join(expansions)}".strip()
+
+        return {"transformed_query": transformed_query}
+
+    def _node_hybrid_retrieve(self, state: RetrievalState) -> RetrievalState:
+        request = state["request"]
+        transformed_query = state["transformed_query"]
+        collection_name = f"{settings.chroma_collection_prefix}{request.tenantId or 'default'}"
+
+        client = chromadb.HttpClient(host=settings.chroma_host, port=settings.chroma_port)
+        embeddings = OpenAIEmbeddings(model=settings.openai_embedding_model)
+        vector_store = Chroma(
+            client=client,
+            collection_name=collection_name,
+            embedding_function=embeddings,
+        )
+
+        candidate_map: dict[tuple[str, int | None, str], dict] = {}
+        vector_hits = vector_store.similarity_search_with_relevance_scores(
+            transformed_query,
+            k=max(request.topK * 3, 8),
+        )
+        for doc, score in vector_hits:
+            source = str(doc.metadata.get("source", "unknown"))
+            chunk_number = doc.metadata.get("chunk_number")
+            key = (source, chunk_number, doc.page_content[:120])
+            candidate = candidate_map.setdefault(
+                key,
+                {
+                    "content": doc.page_content,
+                    "source": source,
+                    "chunk_number": chunk_number,
+                    "vector_score": 0.0,
+                    "lexical_score": 0.0,
+                },
+            )
+            candidate["vector_score"] = max(candidate["vector_score"], float(score))
+
+        collection = client.get_collection(collection_name)
+        lexical_query_tokens = self._tokenize(transformed_query)
+        raw_chunks = collection.get(include=["documents", "metadatas"])
+        documents = raw_chunks.get("documents") or []
+        metadatas = raw_chunks.get("metadatas") or []
+        for index, content in enumerate(documents):
+            metadata = metadatas[index] if index < len(metadatas) else {}
+            source = str((metadata or {}).get("source", "unknown"))
+            chunk_number = (metadata or {}).get("chunk_number")
+            key = (source, chunk_number, content[:120])
+            candidate = candidate_map.setdefault(
+                key,
+                {
+                    "content": content,
+                    "source": source,
+                    "chunk_number": chunk_number,
+                    "vector_score": 0.0,
+                    "lexical_score": 0.0,
+                },
+            )
+            candidate["lexical_score"] = max(
+                candidate["lexical_score"],
+                self._lexical_score(lexical_query_tokens, self._tokenize(content)),
+            )
+
+        return {"candidates": candidate_map}
+
+    def _node_rerank(self, state: RetrievalState) -> RetrievalState:
+        request = state["request"]
+        candidate_map = state.get("candidates", {})
+        ranked: list[dict] = []
+
+        for candidate in candidate_map.values():
+            candidate["rerank_score"] = 0.7 * candidate["vector_score"] + 0.3 * candidate["lexical_score"]
+            if candidate["vector_score"] >= request.similarityThreshold or candidate["lexical_score"] >= 0.2:
+                ranked.append(candidate)
+
+        ranked.sort(key=lambda item: item["rerank_score"], reverse=True)
+        return {"ranked_chunks": ranked[: request.topK]}
+
+    def _node_generate(self, state: RetrievalState) -> RetrievalState:
+        request = state["request"]
+        chunks = state.get("ranked_chunks", [])
+        if not chunks:
+            return {
+                "answer": "I could not find grounded FAQ evidence for that question. Please refine the question or ingest more tenant data.",
+                "grounded": False,
+                "generation_latency_ms": 0,
+            }
+
+        generation_start = time.perf_counter()
+        context = "\n\n".join(
+            f"[{index + 1}] ({chunk['source']}) {chunk['content']}"
+            for index, chunk in enumerate(chunks)
+        )
+        llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
+        result = llm.invoke(
+            [
+                (
+                    "system",
+                    "You are a MyTechStore support assistant. Answer only with facts present in the provided context. If context is insufficient, explicitly say you do not know.",
+                ),
+                (
+                    "human",
+                    f"Question: {request.question}\n\nContext:\n{context}\n\nReturn a concise answer and cite chunk numbers in brackets.",
+                ),
+            ]
+        )
+        answer = str(result.content).strip()
+        grounded = bool(answer) and "do not know" not in answer.lower()
+        return {
+            "answer": answer or "No answer generated.",
+            "grounded": grounded,
+            "generation_latency_ms": int((time.perf_counter() - generation_start) * 1000),
+        }
+
+    def _tokenize(self, text: str) -> set[str]:
+        return set(re.findall(r"[a-z0-9]+", text.lower()))
+
+    def _lexical_score(self, query_tokens: set[str], chunk_tokens: set[str]) -> float:
+        if not query_tokens or not chunk_tokens:
+            return 0.0
+        overlap = query_tokens.intersection(chunk_tokens)
+        return len(overlap) / len(query_tokens)
+
+
+pipeline = RetrievalPipeline()

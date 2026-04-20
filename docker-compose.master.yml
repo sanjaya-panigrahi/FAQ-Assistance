@@ -117,6 +117,19 @@ services:
     networks:
       - faq-network
 
+  langchain-retrieval-service:
+    build:
+      context: ./langchain-retrieval-service
+    ports:
+      - "8186:8000"
+    env_file: .env
+    environment:
+      APP_PORT: 8000
+    volumes:
+      - ./shared-data:/opt/data:ro
+    networks:
+      - faq-network
+
   langchain-neo4j-graph:
     build:
       context: ./langchain-neo4j-graph
@@ -197,6 +210,19 @@ services:
       context: ./langgraph-agentic
     ports:
       - "8281:8000"
+    env_file: .env
+    environment:
+      APP_PORT: 8000
+    volumes:
+      - ./shared-data:/opt/data:ro
+    networks:
+      - faq-network
+
+  langgraph-retrieval-service:
+    build:
+      context: ./langgraph-retrieval-service
+    ports:
+      - "8286:8000"
     env_file: .env
     environment:
       APP_PORT: 8000
