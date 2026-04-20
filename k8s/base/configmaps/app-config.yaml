@@ -1,0 +1,43 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: faq-assistance
+data:
+  # Chroma Configuration
+  CHROMA_HOST: "chroma-faq"
+  CHROMA_PORT: "8000"
+  CHROMA_COLLECTION_PREFIX: "faq_"
+
+  # LLM Configuration
+  OPENAI_API_BASE: "https://api.openai.com/v1"
+  OPENAI_CHAT_MODEL: "gpt-4o-mini"
+  OPENAI_EMBEDDING_MODEL: "text-embedding-3-small"
+
+  # MySQL Configuration
+  MYSQL_HOST: "mysql"
+  MYSQL_PORT: "3306"
+  MYSQL_DATABASE: "faq_analytics"
+  MYSQL_USER: "faq_user"
+
+  # Spring AI Configuration
+  SPRING_PROFILES_ACTIVE: "prod"
+  SPRING_JPA_HIBERNATE_DDL_AUTO: "update"
+
+  # FAQ Source File
+  FAQ_SOURCE_FILE: "/shared-data/mytechstore-faq.md"
+
+  # Consul Configuration
+  CONSUL_HOST: "consul"
+  CONSUL_PORT: "8500"
+
+  # Logging Level
+  LOG_LEVEL: "INFO"
+
+  # Server Ports (internal)
+  SPRING_AI_AGENTIC_PORT: "8081"
+  SPRING_AI_RETRIEVAL_PORT: "9010"
+  LANGCHAIN_AGENTIC_PORT: "8181"
+  LANGCHAIN_RETRIEVAL_PORT: "8186"
+  LANGGRAPH_AGENTIC_PORT: "8281"
+  LANGGRAPH_RETRIEVAL_PORT: "8286"

@@ -1,0 +1,145 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spring-ai-agentic
+  namespace: faq-assistance
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: spring-ai-agentic
+  template:
+    metadata:
+      labels:
+        app: spring-ai-agentic
+        pattern: agentic
+        framework: spring-ai
+    spec:
+      containers:
+      - name: spring-ai-agentic
+        image: faq-assistance:spring-ai-agentic-latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: CHROMA_URL
+          value: "http://chroma-faq:8000"
+        - name: CHROMA_COLLECTION_PREFIX
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: CHROMA_COLLECTION_PREFIX
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: openai-secrets
+              key: openai-api-key
+        - name: OPENAI_CHAT_MODEL
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: OPENAI_CHAT_MODEL
+        - name: OPENAI_EMBEDDING_MODEL
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: OPENAI_EMBEDDING_MODEL
+        - name: FAQ_SOURCE_FILE
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: FAQ_SOURCE_FILE
+        ports:
+        - containerPort: 8081
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8081
+          initialDelaySeconds: 120
+          periodSeconds: 15
+          failureThreshold: 5
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8081
+          initialDelaySeconds: 90
+          periodSeconds: 10
+          failureThreshold: 5
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spring-ai-faq-retrieval
+  namespace: faq-assistance
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: spring-ai-faq-retrieval
+  template:
+    metadata:
+      labels:
+        app: spring-ai-faq-retrieval
+        pattern: retrieval
+        framework: spring-ai
+    spec:
+      containers:
+      - name: spring-ai-faq-retrieval
+        image: faq-assistance:spring-ai-faq-retrieval-latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: CHROMA_URL
+          value: "http://chroma-faq:8000"
+        - name: CHROMA_COLLECTION_PREFIX
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: CHROMA_COLLECTION_PREFIX
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: openai-secrets
+              key: openai-api-key
+        - name: OPENAI_CHAT_MODEL
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: OPENAI_CHAT_MODEL
+        - name: OPENAI_EMBEDDING_MODEL
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: OPENAI_EMBEDDING_MODEL
+        - name: FAQ_SOURCE_FILE
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: FAQ_SOURCE_FILE
+        ports:
+        - containerPort: 9010
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 9010
+          initialDelaySeconds: 120
+          periodSeconds: 15
+          failureThreshold: 5
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 9010
+          initialDelaySeconds: 90
+          periodSeconds: 10
+          failureThreshold: 5

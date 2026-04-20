@@ -136,7 +136,7 @@ services:
         strip_path: true
 
   - name: langgraph-agentic
-    url: http://langgraph-agentic:8000
+    url: http://langgraph-agentic:8281
     routes:
       - name: langgraph-agentic-route
         paths:

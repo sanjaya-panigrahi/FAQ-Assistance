@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-const kongGatewayUrl = "http://localhost:9080";
+const kongGatewayUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:9080";
 const ingestionApiUrl = `${kongGatewayUrl}/spring/ingestion/api/faq-ingestion`;
 const analyticsApiUrl = `${kongGatewayUrl}/spring/analytics/api/analytics`;
 const analyticsPresetsStorageKey = "faq-assistance.analytics.filter-presets";

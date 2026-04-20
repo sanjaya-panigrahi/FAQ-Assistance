@@ -1,0 +1,374 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kong
+  namespace: faq-assistance
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kong
+  template:
+    metadata:
+      labels:
+        app: kong
+    spec:
+      containers:
+      - name: kong
+        image: kong:latest
+        env:
+        - name: KONG_DATABASE
+          value: "off"
+        - name: KONG_NGINX_WORKER_PROCESSES
+          value: "1"
+        - name: KONG_DECLARATIVE_CONFIG
+          value: "/kong/declarative/kong.yml"
+        - name: KONG_PROXY_ACCESS_LOG
+          value: "/dev/stdout"
+        - name: KONG_ADMIN_ACCESS_LOG
+          value: "/dev/stdout"
+        - name: KONG_PROXY_ERROR_LOG
+          value: "/dev/stderr"
+        - name: KONG_ADMIN_ERROR_LOG
+          value: "/dev/stderr"
+        ports:
+        - containerPort: 8000
+          name: proxy
+        - containerPort: 8443
+          name: proxy-ssl
+        - containerPort: 8001
+          name: admin
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        volumeMounts:
+        - name: kong-config
+          mountPath: /kong/declarative
+          readOnly: true
+        livenessProbe:
+          tcpSocket:
+            port: 8000
+          initialDelaySeconds: 45
+          periodSeconds: 10
+          failureThreshold: 5
+      volumes:
+      - name: kong-config
+        configMap:
+          name: kong-config
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: konga-db
+  namespace: faq-assistance
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: konga-db
+  template:
+    metadata:
+      labels:
+        app: konga-db
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:9.6-alpine
+        env:
+        - name: POSTGRES_USER
+          value: "konga"
+        - name: POSTGRES_PASSWORD
+          value: "konga"
+        - name: POSTGRES_DB
+          value: "konga"
+        ports:
+        - containerPort: 5432
+        volumeMounts:
+        - name: konga-db-data
+          mountPath: /var/lib/postgresql/data
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          tcpSocket:
+            port: 5432
+          initialDelaySeconds: 20
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 5432
+          initialDelaySeconds: 10
+          periodSeconds: 5
+      volumes:
+      - name: konga-db-data
+        emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: konga
+  namespace: faq-assistance
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: konga
+  template:
+    metadata:
+      labels:
+        app: konga
+    spec:
+      initContainers:
+      - name: konga-prepare
+        image: pantsel/konga:0.14.9
+        args:
+        - -c
+        - prepare
+        - -a
+        - postgres
+        - -u
+        - postgresql://konga:konga@konga-db:5432/konga
+      containers:
+      - name: konga
+        image: pantsel/konga:0.14.9
+        env:
+        - name: DB_ADAPTER
+          value: "postgres"
+        - name: DB_URI
+          value: "postgresql://konga:konga@konga-db:5432/konga"
+        - name: NODE_ENV
+          value: "production"
+        - name: KONGA_HOOK_TIMEOUT
+          value: "180000"
+        ports:
+        - containerPort: 1337
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 1337
+          initialDelaySeconds: 120
+          periodSeconds: 15
+          failureThreshold: 5
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 1337
+          initialDelaySeconds: 90
+          periodSeconds: 10
+          failureThreshold: 5
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: faq-ui
+  namespace: faq-assistance
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: faq-ui
+  template:
+    metadata:
+      labels:
+        app: faq-ui
+    spec:
+      containers:
+      - name: faq-ui
+        image: faq-assistance:faq-ui-latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: VITE_API_BASE_URL
+          value: "http://localhost:8000"
+        ports:
+        - containerPort: 5173
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "250m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 5173
+          initialDelaySeconds: 20
+          periodSeconds: 10
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-analytics
+  namespace: faq-assistance
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rag-analytics
+  template:
+    metadata:
+      labels:
+        app: rag-analytics
+    spec:
+      containers:
+      - name: rag-analytics
+        image: faq-assistance:rag-analytics-latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: ANALYTICS_DB_HOST
+          value: "mysql"
+        - name: ANALYTICS_DB_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: MYSQL_PORT
+        - name: ANALYTICS_DB_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: MYSQL_DATABASE
+        - name: ANALYTICS_DB_USER
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: MYSQL_USER
+        - name: ANALYTICS_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-secrets
+              key: mysql-password
+        - name: MYSQL_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: MYSQL_HOST
+        - name: MYSQL_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: MYSQL_PORT
+        - name: MYSQL_DATABASE
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: MYSQL_DATABASE
+        - name: MYSQL_USER
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: MYSQL_USER
+        - name: MYSQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-secrets
+              key: mysql-password
+        ports:
+        - containerPort: 9191
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 9191
+          initialDelaySeconds: 30
+          periodSeconds: 10
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: faq-ingestion
+  namespace: faq-assistance
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: faq-ingestion
+  template:
+    metadata:
+      labels:
+        app: faq-ingestion
+    spec:
+      containers:
+      - name: faq-ingestion
+        image: faq-assistance:faq-ingestion-latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: CHROMA_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: CHROMA_HOST
+        - name: CHROMA_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: CHROMA_PORT
+        - name: CHROMA_COLLECTION_PREFIX
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: CHROMA_COLLECTION_PREFIX
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: openai-secrets
+              key: openai-api-key
+        - name: OPENAI_EMBEDDING_MODEL
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: OPENAI_EMBEDDING_MODEL
+        - name: APP_CHROMA_URL
+          value: "http://chroma-faq:8000"
+        - name: JAVA_TOOL_OPTIONS
+          value: "-Xms256m -Xmx768m"
+        ports:
+        - containerPort: 9000
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "750m"
+        startupProbe:
+          httpGet:
+            path: /actuator/health
+            port: 9000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 30
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 9000
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          failureThreshold: 6
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 9000
+          initialDelaySeconds: 180
+          periodSeconds: 20
+          failureThreshold: 5

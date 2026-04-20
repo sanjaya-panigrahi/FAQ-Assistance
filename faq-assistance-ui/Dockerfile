@@ -5,6 +5,8 @@ RUN npm install
 
 FROM node:20-alpine AS build
 WORKDIR /app
+ARG VITE_API_BASE_URL=http://localhost:9080
+ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 COPY --from=deps /app/node_modules /app/node_modules
 COPY . .
 RUN npm run build

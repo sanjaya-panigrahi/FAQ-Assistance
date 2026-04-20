@@ -1,0 +1,143 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: langchain-agentic
+  namespace: faq-assistance
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: langchain-agentic
+  template:
+    metadata:
+      labels:
+        app: langchain-agentic
+        pattern: agentic
+        framework: langchain
+    spec:
+      containers:
+      - name: langchain-agentic
+        image: faq-assistance:langchain-agentic-latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: APP_PORT
+          value: "8181"
+        - name: CHROMA_HOST
+          value: "chroma-faq"
+        - name: CHROMA_PORT
+          value: "8000"
+        - name: CHROMA_COLLECTION_PREFIX
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: CHROMA_COLLECTION_PREFIX
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: openai-secrets
+              key: openai-api-key
+        - name: OPENAI_CHAT_MODEL
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: OPENAI_CHAT_MODEL
+        - name: OPENAI_EMBEDDING_MODEL
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: OPENAI_EMBEDDING_MODEL
+        ports:
+        - containerPort: 8181
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8181
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 5
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8181
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          failureThreshold: 5
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: langchain-retrieval-service
+  namespace: faq-assistance
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: langchain-retrieval-service
+  template:
+    metadata:
+      labels:
+        app: langchain-retrieval-service
+        pattern: retrieval
+        framework: langchain
+    spec:
+      containers:
+      - name: langchain-retrieval
+        image: faq-assistance:langchain-retrieval-service-latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: APP_PORT
+          value: "8186"
+        - name: CHROMA_HOST
+          value: "chroma-faq"
+        - name: CHROMA_PORT
+          value: "8000"
+        - name: CHROMA_COLLECTION_PREFIX
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: CHROMA_COLLECTION_PREFIX
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: openai-secrets
+              key: openai-api-key
+        - name: OPENAI_CHAT_MODEL
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: OPENAI_CHAT_MODEL
+        - name: OPENAI_EMBEDDING_MODEL
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: OPENAI_EMBEDDING_MODEL
+        ports:
+        - containerPort: 8186
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8186
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 5
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8186
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          failureThreshold: 5

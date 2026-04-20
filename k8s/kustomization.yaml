@@ -1,0 +1,28 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: faq-assistance
+
+resources:
+  - base/namespaces/faq-assistance-ns.yaml
+  - base/configmaps/app-config.yaml
+  - base/configmaps/kong-config.yaml
+  - base/storage/pvc.yaml
+  - base/services/all-services.yaml
+  - base/deployments/01-infrastructure.yaml
+  - base/deployments/02-spring-ai-services.yaml
+  - base/deployments/03-langchain-services.yaml
+  - base/deployments/04-langgraph-services.yaml
+  - base/deployments/05-support-services.yaml
+  - base/ingress/ingress.yaml
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: faq-assistance
+      managed-by: kustomize
+    includeSelectors: false
+    includeTemplates: true
+
+commonAnnotations:
+  version: "1.0"
+  managed-by: "kubectl"

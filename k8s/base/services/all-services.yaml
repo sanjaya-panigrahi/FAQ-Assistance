@@ -1,0 +1,205 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+  namespace: faq-assistance
+spec:
+  selector:
+    app: mysql
+  ports:
+    - port: 3306
+      targetPort: 3306
+  clusterIP: None  # Headless service for stateful application
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chroma-faq
+  namespace: faq-assistance
+spec:
+  selector:
+    app: chroma-faq
+  ports:
+    - port: 8000
+      targetPort: 8000
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: consul
+  namespace: faq-assistance
+spec:
+  selector:
+    app: consul
+  ports:
+    - port: 8500
+      targetPort: 8500
+      name: http
+    - port: 8600
+      targetPort: 8600
+      name: dns
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kong-gateway
+  namespace: faq-assistance
+spec:
+  selector:
+    app: kong
+  ports:
+    - port: 8000
+      targetPort: 8000
+      name: proxy
+    - port: 8443
+      targetPort: 8443
+      name: proxy-ssl
+    - port: 8001
+      targetPort: 8001
+      name: admin
+  type: NodePort
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: konga-ui
+  namespace: faq-assistance
+spec:
+  selector:
+    app: konga
+  ports:
+    - port: 1337
+      targetPort: 1337
+  type: NodePort
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: konga-db
+  namespace: faq-assistance
+spec:
+  selector:
+    app: konga-db
+  ports:
+    - port: 5432
+      targetPort: 5432
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: faq-ui
+  namespace: faq-assistance
+spec:
+  selector:
+    app: faq-ui
+  ports:
+    - port: 5173
+      targetPort: 5173
+  type: NodePort
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-analytics
+  namespace: faq-assistance
+spec:
+  selector:
+    app: rag-analytics
+  ports:
+    - port: 9191
+      targetPort: 9191
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spring-ai-agentic
+  namespace: faq-assistance
+spec:
+  selector:
+    app: spring-ai-agentic
+  ports:
+    - port: 8081
+      targetPort: 8081
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spring-ai-faq-retrieval
+  namespace: faq-assistance
+spec:
+  selector:
+    app: spring-ai-faq-retrieval
+  ports:
+    - port: 9010
+      targetPort: 9010
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: langchain-agentic
+  namespace: faq-assistance
+spec:
+  selector:
+    app: langchain-agentic
+  ports:
+    - port: 8181
+      targetPort: 8181
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: langchain-retrieval-service
+  namespace: faq-assistance
+spec:
+  selector:
+    app: langchain-retrieval-service
+  ports:
+    - port: 8186
+      targetPort: 8186
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: langgraph-agentic
+  namespace: faq-assistance
+spec:
+  selector:
+    app: langgraph-agentic
+  ports:
+    - port: 8281
+      targetPort: 8281
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: langgraph-retrieval-service
+  namespace: faq-assistance
+spec:
+  selector:
+    app: langgraph-retrieval-service
+  ports:
+    - port: 8286
+      targetPort: 8286
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: faq-ingestion
+  namespace: faq-assistance
+spec:
+  selector:
+    app: faq-ingestion
+  ports:
+    - port: 9000
+      targetPort: 9000
+  type: ClusterIP

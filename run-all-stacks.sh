@@ -344,7 +344,10 @@ done
 echo ""
 
 echo -e "${BLUE}Health Check - FAQ Ingestion Stack:${NC}"
-response=$(curl -s --max-time 5 http://localhost:8000/api/v1/heartbeat 2>/dev/null)
+response=$(curl -s --max-time 5 http://localhost:8000/api/v2/heartbeat 2>/dev/null)
+if [ -z "$response" ]; then
+    response=$(curl -s --max-time 5 http://localhost:8000/api/v1/heartbeat 2>/dev/null)
+fi
 if [ -n "$response" ]; then
     echo -e "${GREEN}✓ ChromaDB (port 8000): UP${NC}"
 else

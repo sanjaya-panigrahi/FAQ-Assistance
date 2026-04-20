@@ -13,4 +13,17 @@ if [ ! -f "${RUNNER}" ]; then
     exit 1
 fi
 
-exec bash "${RUNNER}" "$@"
+# Quickstart should boot a usable UI by default, which requires Kong routing.
+has_kong_flag="false"
+for arg in "$@"; do
+    if [ "$arg" = "--with-kong" ] || [ "$arg" = "--with-kong-consul" ]; then
+        has_kong_flag="true"
+        break
+    fi
+done
+
+if [ "$has_kong_flag" = "false" ]; then
+    exec bash "${RUNNER}" --with-kong "$@"
+else
+    exec bash "${RUNNER}" "$@"
+fi

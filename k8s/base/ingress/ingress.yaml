@@ -1,0 +1,47 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: faq-assistance-ingress
+  namespace: faq-assistance
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+spec:
+  rules:
+  - host: "faq.local"
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: faq-ui
+            port:
+              number: 5173
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: kong-gateway
+            port:
+              number: 8000
+      - path: /admin
+        pathType: Prefix
+        backend:
+          service:
+            name: kong-gateway
+            port:
+              number: 8001
+      - path: /konga
+        pathType: Prefix
+        backend:
+          service:
+            name: konga-ui
+            port:
+              number: 1337
+      - path: /analytics
+        pathType: Prefix
+        backend:
+          service:
+            name: rag-analytics
+            port:
+              number: 9191

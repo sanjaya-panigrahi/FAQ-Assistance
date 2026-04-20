@@ -99,7 +99,7 @@ services:
         strip_path: true
 
   - name: langgraph-agentic
-    url: http://langgraph-agentic.service.consul:8000
+    url: http://langgraph-agentic.service.consul:8281
     routes:
       - name: langgraph-agentic-route
         paths:

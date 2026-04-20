@@ -41,6 +41,10 @@ public class ChromaDBService {
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
 
+    // ChromaDB v2 tenant/database scope (defaults match server defaults)
+    private static final String CHROMA_TENANT   = "default_tenant";
+    private static final String CHROMA_DATABASE  = "default_database";
+
     public ChromaDBService(
         EmbeddingModel embeddingModel,
         @Value("${app.chroma.url:http://localhost:8000}") String chromaUrl,
@@ -55,6 +59,12 @@ public class ChromaDBService {
             .version(HttpClient.Version.HTTP_1_1)
             .build();
         this.objectMapper = new ObjectMapper();
+    }
+
+    /** Base path for all v2 collection operations. */
+    private String collectionsBase() {
+        return chromaUrl + "/api/v2/tenants/" + CHROMA_TENANT
+             + "/databases/" + CHROMA_DATABASE + "/collections";
     }
 
     /**
@@ -107,7 +117,7 @@ public class ChromaDBService {
             ));
 
             HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(chromaUrl + "/api/v1/collections"))
+                .uri(URI.create(collectionsBase()))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
                 .build();
@@ -151,7 +161,7 @@ public class ChromaDBService {
         try {
             String encodedCollectionName = URLEncoder.encode(collectionName, StandardCharsets.UTF_8);
             HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(chromaUrl + "/api/v1/collections/" + encodedCollectionName))
+                .uri(URI.create(collectionsBase() + "/" + encodedCollectionName))
                 .GET()
                 .build();
 
@@ -206,7 +216,7 @@ public class ChromaDBService {
             payload.put("embeddings", embeddings);
 
             HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(chromaUrl + "/api/v1/collections/" + collectionId + "/add"))
+                .uri(URI.create(collectionsBase() + "/" + collectionId + "/add"))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
                 .build();
@@ -256,7 +266,7 @@ public class ChromaDBService {
             }
 
             HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(chromaUrl + "/api/v1/collections/" + collectionId + "/query"))
+                .uri(URI.create(collectionsBase() + "/" + collectionId + "/query"))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
                 .build();
@@ -291,7 +301,7 @@ public class ChromaDBService {
             payload.put("ids", documentIds);
 
             HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(chromaUrl + "/api/v1/collections/" + collectionId + "/delete"))
+                .uri(URI.create(collectionsBase() + "/" + collectionId + "/delete"))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
                 .build();
@@ -312,7 +322,7 @@ public class ChromaDBService {
     public boolean deleteCollection(String collectionName) {
         try {
             HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(chromaUrl + "/api/v1/collections/" + collectionName))
+                .uri(URI.create(collectionsBase() + "/" + collectionName))
                 .DELETE()
                 .build();
 
@@ -337,7 +347,7 @@ public class ChromaDBService {
             }
 
             HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(chromaUrl + "/api/v1/collections/" + collectionId + "/count"))
+                .uri(URI.create(collectionsBase() + "/" + collectionId + "/count"))
                 .GET()
                 .build();
 
