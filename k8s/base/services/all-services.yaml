@@ -142,6 +142,58 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
+  name: spring-ai-neo4j-graph
+  namespace: faq-assistance
+spec:
+  selector:
+    app: spring-ai-neo4j-graph
+  ports:
+    - port: 8082
+      targetPort: 8082
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spring-ai-corrective
+  namespace: faq-assistance
+spec:
+  selector:
+    app: spring-ai-corrective
+  ports:
+    - port: 8083
+      targetPort: 8083
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spring-ai-multimodal
+  namespace: faq-assistance
+spec:
+  selector:
+    app: spring-ai-multimodal
+  ports:
+    - port: 8084
+      targetPort: 8084
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spring-ai-hierarchical
+  namespace: faq-assistance
+spec:
+  selector:
+    app: spring-ai-hierarchical
+  ports:
+    - port: 8085
+      targetPort: 8085
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
   name: langchain-agentic
   namespace: faq-assistance
 spec:
@@ -163,6 +215,58 @@ spec:
   ports:
     - port: 8186
       targetPort: 8186
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: langchain-neo4j-graph
+  namespace: faq-assistance
+spec:
+  selector:
+    app: langchain-neo4j-graph
+  ports:
+    - port: 8182
+      targetPort: 8182
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: langchain-corrective
+  namespace: faq-assistance
+spec:
+  selector:
+    app: langchain-corrective
+  ports:
+    - port: 8183
+      targetPort: 8183
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: langchain-multimodal
+  namespace: faq-assistance
+spec:
+  selector:
+    app: langchain-multimodal
+  ports:
+    - port: 8184
+      targetPort: 8184
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: langchain-hierarchical
+  namespace: faq-assistance
+spec:
+  selector:
+    app: langchain-hierarchical
+  ports:
+    - port: 8185
+      targetPort: 8185
   type: ClusterIP
 ---
 apiVersion: v1
@@ -194,6 +298,58 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
+  name: langgraph-neo4j-graph
+  namespace: faq-assistance
+spec:
+  selector:
+    app: langgraph-neo4j-graph
+  ports:
+    - port: 8282
+      targetPort: 8282
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: langgraph-corrective
+  namespace: faq-assistance
+spec:
+  selector:
+    app: langgraph-corrective
+  ports:
+    - port: 8283
+      targetPort: 8283
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: langgraph-multimodal
+  namespace: faq-assistance
+spec:
+  selector:
+    app: langgraph-multimodal
+  ports:
+    - port: 8284
+      targetPort: 8284
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: langgraph-hierarchical
+  namespace: faq-assistance
+spec:
+  selector:
+    app: langgraph-hierarchical
+  ports:
+    - port: 8285
+      targetPort: 8285
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
   name: faq-ingestion
   namespace: faq-assistance
 spec:
@@ -202,4 +358,34 @@ spec:
   ports:
     - port: 9000
       targetPort: 9000
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: neo4j-unified
+  namespace: faq-assistance
+spec:
+  selector:
+    app: neo4j-unified
+  ports:
+    - port: 7687
+      targetPort: 7687
+      name: bolt
+    - port: 7474
+      targetPort: 7474
+      name: http
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-cache
+  namespace: faq-assistance
+spec:
+  selector:
+    app: redis-cache
+  ports:
+    - port: 6379
+      targetPort: 6379
   type: ClusterIP

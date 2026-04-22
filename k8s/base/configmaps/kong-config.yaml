@@ -31,7 +31,7 @@ data:
 
     services:
       - name: spring-agentic
-        url: http://spring-ai-agentic:9000
+        url: http://spring-ai-agentic:8081
         routes:
           - name: spring-agentic-route
             paths:

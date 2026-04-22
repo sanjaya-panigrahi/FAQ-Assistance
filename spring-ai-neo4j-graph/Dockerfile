@@ -11,4 +11,4 @@ USER app
 WORKDIR /app
 COPY --from=build /workspace/target/*.jar /app/app.jar
 EXPOSE 8082
-ENTRYPOINT ["java", "-XX:+UseSerialGC", "-XX:MaxRAMPercentage=75", "-jar", "/app/app.jar"]
+ENTRYPOINT ["java", "-XX:+UseContainerSupport", "-XX:MaxRAMPercentage=75", "-XX:+UseG1GC", "-XX:MaxGCPauseMillis=100", "-jar", "/app/app.jar"]

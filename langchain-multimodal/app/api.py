@@ -1,12 +1,13 @@
 import base64
 import json
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
 
 from .config import settings
 from .pipeline import pipeline
+from .security import TokenPayload, get_current_user, get_current_user_optional
 from .schemas import VisionRagRequest, VisionRagResponse
 
 
@@ -105,7 +106,9 @@ def health() -> dict:
 
 
 @router.post("/api/index/rebuild")
-def rebuild() -> dict:
+def rebuild(current_user: TokenPayload = Depends(get_current_user)) -> dict:
+    if current_user.role != "ADMIN":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
     try:
         count = pipeline.rebuild_index()
         return {"status": "ok", "documents": count, "note": "Index managed by faq-ingestion service"}
@@ -114,16 +117,20 @@ def rebuild() -> dict:
 
 
 @router.post("/api/query/ask", response_model=VisionRagResponse)
-def ask(request: VisionRagRequest) -> VisionRagResponse:
+def ask(request: VisionRagRequest, current_user: TokenPayload | None = Depends(get_current_user_optional)) -> VisionRagResponse:
     question = request.question.strip()
     if not question:
         raise HTTPException(status_code=400, detail="question is required")
+
+    customer_id = request.customerId or (current_user.tenant_id if current_user else None)
+    if not customer_id:
+        raise HTTPException(status_code=400, detail="customerId is required")
 
     try:
         return pipeline.ask(
             question=question,
             image_description=request.imageDescription.strip(),
-            customer_id=request.customerId,
+            customer_id=customer_id,
         )
     except Exception as exc:  # pragma: no cover
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -135,10 +142,15 @@ async def ask_with_image(
     customerId: str | None = Form(default=None),
     imageDescription: str = Form(default=""),
     image: UploadFile | None = File(default=None),
+    current_user: TokenPayload | None = Depends(get_current_user_optional),
 ) -> VisionRagResponse:
     cleaned_question = question.strip()
     if not cleaned_question:
         raise HTTPException(status_code=400, detail="question is required")
+
+    customer_id = customerId or (current_user.tenant_id if current_user else None)
+    if not customer_id:
+        raise HTTPException(status_code=400, detail="customerId is required")
 
     extracted_signals = ""
     if image is not None:
@@ -161,7 +173,7 @@ async def ask_with_image(
         base = pipeline.ask(
             question=cleaned_question,
             image_description=image_context,
-            customer_id=customerId,
+            customer_id=customer_id,
         )
         return VisionRagResponse(
             answer=base.answer,

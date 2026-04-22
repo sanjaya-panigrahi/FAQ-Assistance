@@ -1,0 +1,395 @@
+name: CI/CD Pipeline - FAQ Retrieval Service
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'spring-ai-*/**'
+      - 'langchain-*/**'
+      - 'langgraph-*/**'
+      - 'k8s/**'
+      - 'docker-compose*.yml'
+      - '.github/workflows/**'
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/spring-ai-faq-retrieval
+
+jobs:
+  test:
+    name: Run Java Tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - spring-ai-faq-retrieval
+          - spring-ai-faq-ingestion
+          - spring-ai-agentic
+          - spring-ai-corrective
+          - spring-ai-hierarchical
+          - spring-ai-multimodal
+          - spring-ai-neo4j-graph
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Cache Maven packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
+
+      - name: Run unit tests
+        working-directory: ./${{ matrix.module }}
+        run: mvn clean test
+
+      - name: Generate test report
+        if: always()
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        with:
+          files: '${{ matrix.module }}/target/surefire-reports/**/*.xml'
+
+  test-python:
+    name: Test Python Services
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.11']
+        service:
+          - langchain-retrieval-service
+          - langchain-agentic
+          - langchain-corrective
+          - langchain-hierarchical
+          - langchain-multimodal
+          - langchain-neo4j-graph
+          - langgraph-retrieval-service
+          - langgraph-agentic
+          - langgraph-corrective
+          - langgraph-hierarchical
+          - langgraph-multimodal
+          - langgraph-neo4j-graph
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Restore pip cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ matrix.service }}-${{ hashFiles(format('{0}/requirements.txt', matrix.service)) }}
+          restore-keys: |
+            ${{ runner.os }}-pip-${{ matrix.service }}-
+
+      - name: Create virtualenv
+        run: |
+          python -m venv .venv
+          ./.venv/bin/python -m pip install --upgrade pip
+
+      - name: Install dependencies
+        run: ./.venv/bin/python -m pip install -r ${{ matrix.service }}/requirements.txt
+
+      - name: Lint with flake8
+        run: |
+          ./.venv/bin/python -m pip install flake8
+          ./.venv/bin/flake8 ${{ matrix.service }}/app ${{ matrix.service }}/tests --count --select=E9,F63,F7,F82 --show-source --statistics
+          ./.venv/bin/flake8 ${{ matrix.service }}/app ${{ matrix.service }}/tests --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+      - name: Run pytest tests
+        working-directory: ./${{ matrix.service }}
+        run: ../.venv/bin/python -m pytest tests/ -v --cov=app --cov-report=xml
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./${{ matrix.service }}/coverage.xml
+          flags: python-${{ matrix.service }}
+          name: python-${{ matrix.service }}
+
+  build:
+    name: Build and Push Java Docker Image
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Build application
+        working-directory: ./spring-ai-faq-retrieval
+        run: mvn clean package -DskipTests
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./spring-ai-faq-retrieval
+          file: ./spring-ai-faq-retrieval/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  build-python:
+    name: Build Python Docker Images
+    runs-on: ubuntu-latest
+    needs: test-python
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    strategy:
+      matrix:
+        service:
+          - langchain-retrieval-service
+          - langchain-agentic
+          - langchain-corrective
+          - langchain-hierarchical
+          - langchain-multimodal
+          - langchain-neo4j-graph
+          - langgraph-retrieval-service
+          - langgraph-agentic
+          - langgraph-corrective
+          - langgraph-hierarchical
+          - langgraph-multimodal
+          - langgraph-neo4j-graph
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.service }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./${{ matrix.service }}
+          file: ./${{ matrix.service }}/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  security-scan:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+    needs: [build, build-python]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Snyk security scan
+        uses: snyk/actions/maven@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high --file=spring-ai-faq-retrieval/pom.xml
+
+      - name: Upload Snyk results
+        uses: github/codeql-action/upload-sarif@v3
+        if: failure()
+        with:
+          sarif_file: snyk.sarif
+
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [test, test-python, build, build-python, security-scan]
+    if: github.ref == 'refs/heads/develop'
+    environment:
+      name: staging
+      url: https://staging-faq.example.com
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBE_CONFIG_STAGING }}" | base64 -d > $HOME/.kube/config
+
+      - name: Deploy with Helm
+        run: |
+          helm repo add faq-repo ${{ secrets.HELM_REPO_URL }}
+          helm repo update
+          helm upgrade --install faq-retrieval faq-repo/spring-ai-faq-retrieval \
+            --namespace staging \
+            --values helm/values-staging.yaml \
+            --set image.tag=${{ github.sha }}
+
+      - name: Verify deployment
+        run: kubectl rollout status deployment/spring-ai-faq-retrieval -n staging --timeout=5m
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [test, test-python, build, build-python, security-scan]
+    if: github.ref == 'refs/heads/main'
+    environment:
+      name: production
+      url: https://faq.example.com
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBE_CONFIG_PROD }}" | base64 -d > $HOME/.kube/config
+
+      - name: Deploy with Helm
+        run: |
+          helm repo add faq-repo ${{ secrets.HELM_REPO_URL }}
+          helm repo update
+          helm upgrade --install faq-retrieval faq-repo/spring-ai-faq-retrieval \
+            --namespace production \
+            --values helm/values-production.yaml \
+            --set image.tag=${{ github.sha }}
+
+      - name: Verify production deployment
+        run: kubectl rollout status deployment/spring-ai-faq-retrieval -n production --timeout=10m
+
+  notify-core:
+    name: Notify on Core Failure
+    runs-on: ubuntu-latest
+    if: always() && failure()
+    needs: [test, test-python, build, build-python, security-scan]
+
+    steps:
+      - name: Send Slack notification
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "CI/CD Pipeline Failed",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*:x: CI/CD Pipeline Failed*\nRepository: ${{ github.repository }}\nBranch: ${{ github.ref }}\nCommit: ${{ github.sha }}\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+
+  notify-staging-deploy:
+    name: Notify on Staging Deploy Failure
+    runs-on: ubuntu-latest
+    if: always() && github.ref == 'refs/heads/develop' && failure()
+    needs: [deploy-staging]
+
+    steps:
+      - name: Send Slack notification
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "Staging Deployment Failed",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*:x: Staging Deployment Failed*\nRepository: ${{ github.repository }}\nBranch: ${{ github.ref }}\nCommit: ${{ github.sha }}\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+
+  notify-production-deploy:
+    name: Notify on Production Deploy Failure
+    runs-on: ubuntu-latest
+    if: always() && github.ref == 'refs/heads/main' && failure()
+    needs: [deploy-production]
+
+    steps:
+      - name: Send Slack notification
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "Production Deployment Failed",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*:x: Production Deployment Failed*\nRepository: ${{ github.repository }}\nBranch: ${{ github.ref }}\nCommit: ${{ github.sha }}\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}

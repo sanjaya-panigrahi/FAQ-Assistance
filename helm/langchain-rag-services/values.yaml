@@ -1,0 +1,156 @@
+# Global configuration
+global:
+  environment: "development"
+  logLevel: "INFO"
+
+# Service configuration
+service:
+  name: "langchain-rag-services"
+  type: "retrieval"  # retrieval, agentic, corrective, hierarchical, multimodal, neo4j-graph
+
+serviceAccount:
+  create: true
+  name: ""
+
+# Replica configuration
+replicaCount: 2
+
+# Image configuration
+image:
+  registry: "ghcr.io"
+  repository: "your-org/faq-assistance"
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+# Container port
+containerPort: 8000
+metricsPort: 9090
+
+# Service configuration
+serviceConfig:
+  type: ClusterIP
+  port: 80
+  targetPort: 8000
+
+# Health checks
+healthChecks:
+  liveness:
+    enabled: true
+    initialDelaySeconds: 60
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 3
+    path: /health
+  
+  readiness:
+    enabled: true
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+    path: /health
+
+# Resource limits and requests
+resources:
+  limits:
+    cpu: "1000m"
+    memory: "1Gi"
+  requests:
+    cpu: "500m"
+    memory: "512Mi"
+
+# Autoscaling configuration
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# Pod Disruption Budget
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  hosts:
+    - host: "rag-services.example.com"
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: "rag-services-tls"
+      hosts:
+        - "rag-services.example.com"
+
+# CORS configuration
+cors:
+  origins: ["*"]
+  allowCredentials: true
+  allowMethods: ["*"]
+  allowHeaders: ["*"]
+
+# Security context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsReadOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+# Environment variables
+environment:
+  JWT_EXPIRATION_HOURS: "24"
+  JWT_REFRESH_EXPIRATION_DAYS: "7"
+  LOG_LEVEL: "INFO"
+  ELASTICSEARCH_HOST: "elasticsearch"
+  ELASTICSEARCH_PORT: "9200"
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"
+  NEO4J_HOST: "neo4j"
+  NEO4J_PORT: "7687"
+  ZIPKIN_HOST: "zipkin"
+  ZIPKIN_PORT: "9411"
+
+# Secrets
+secrets:
+  JWT_SECRET: "dev-secret-key-change-in-production"
+  NEO4J_USER: "neo4j"
+  NEO4J_PASSWORD: "password"
+  OPENAI_API_KEY: ""
+
+# Network Policy
+networkPolicy:
+  enabled: false
+  policyTypes:
+    - Ingress
+    - Egress
+
+# Pod annotations
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "9090"
+  prometheus.io/path: "/metrics"
+
+# Node affinity
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - "{{ include \"langchain-rag-services.name\" . }}"
+          topologyKey: kubernetes.io/hostname

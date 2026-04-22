@@ -14,6 +14,7 @@ resources:
   - base/deployments/03-langchain-services.yaml
   - base/deployments/04-langgraph-services.yaml
   - base/deployments/05-support-services.yaml
+  - base/policies/pod-disruption-budgets.yaml
   - base/ingress/ingress.yaml
 
 labels:

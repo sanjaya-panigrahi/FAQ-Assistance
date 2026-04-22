@@ -10,6 +10,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -28,10 +29,23 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
+import io.github.resilience4j.bulkhead.annotation.Bulkhead;
+import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 @Service
 public class RetrievalPipelineService {
+
+    private static final Logger logger = LoggerFactory.getLogger(RetrievalPipelineService.class);
 
     private static final Set<String> STOP_WORDS = Set.of(
         "a", "an", "and", "are", "at", "be", "by", "can", "do", "for", "from", "how", "i", "if",
@@ -42,10 +56,12 @@ public class RetrievalPipelineService {
     private static final Pattern NON_ALNUM = Pattern.compile("[^a-z0-9 ]");
     private static final Pattern MULTI_SPACE = Pattern.compile("\\s+");
 
+    private final Map<String, float[]> embeddingCache = new ConcurrentHashMap<>();
     private final ChatClient chatClient;
     private final EmbeddingModel embeddingModel;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
+    private final RedisTemplate<String, Object> redisTemplate;
 
     private final String chromaUrl;
     private final String collectionPrefix;
@@ -59,6 +75,7 @@ public class RetrievalPipelineService {
         ChatClient.Builder chatClientBuilder,
         EmbeddingModel embeddingModel,
         ObjectMapper objectMapper,
+        RedisTemplate<String, Object> redisTemplate,
         @Value("${retrieval.chroma-url}") String chromaUrl,
         @Value("${retrieval.collection-prefix}") String collectionPrefix,
         @Value("${retrieval.default-tenant}") String defaultTenant,
@@ -70,6 +87,7 @@ public class RetrievalPipelineService {
         this.chatClient = chatClientBuilder.build();
         this.embeddingModel = embeddingModel;
         this.objectMapper = objectMapper;
+        this.redisTemplate = redisTemplate;
         this.httpClient = HttpClient.newBuilder()
             .version(HttpClient.Version.HTTP_1_1)
             .connectTimeout(Duration.ofSeconds(10))
@@ -93,19 +111,36 @@ public class RetrievalPipelineService {
 
         return Map.of(
             "status", chromaOk ? "UP" : "DEGRADED",
-            "pipeline", "query-transformation -> hybrid-retrieval -> reranking -> generation-grounding",
-            "chromaConnected", chromaOk,
-            "chromaUrl", chromaUrl
+            "chromaConnected", chromaOk
         );
     }
 
+    @Cacheable(value = "retrievalCache", key = "#request.tenantId() + ':' + #request.question()")
+    @CircuitBreaker(name = "chromaRetrieval", fallbackMethod = "queryFallback")
+    @Retry(name = "chromaRetrieval")
+    @Bulkhead(name = "chromaRetrieval")
+    @RateLimiter(name = "api-limiter")
     public RetrievalQueryResponse query(RetrievalQueryRequest request) {
-        String tenantId = request.tenantId() == null || request.tenantId().isBlank()
-            ? defaultTenant : request.tenantId().trim();
+        // Check for idempotency key
+        String idempotencyKey = getIdempotencyKey();
+        if (idempotencyKey != null) {
+            String cachedKey = "idempotency:" + idempotencyKey;
+            Object cachedResponse = redisTemplate.opsForValue().get(cachedKey);
+            if (cachedResponse != null) {
+                logger.debug("Idempotent request detected - returning cached response for key: {}", idempotencyKey);
+                return (RetrievalQueryResponse) cachedResponse;
+            }
+        }
+
+        long totalStart = System.currentTimeMillis();
+        String tenantId = resolveTenantId(request);
         String question = request.question().trim();
         String queryContext = request.queryContext() == null ? "" : request.queryContext().trim();
-        int topK = request.topK() == null ? defaultTopK : request.topK();
-        double threshold = request.similarityThreshold() == null ? defaultThreshold : request.similarityThreshold();
+        int topK = validateTopK(request.topK() == null ? defaultTopK : request.topK());
+        double threshold = validateThreshold(request.similarityThreshold() == null ? defaultThreshold : request.similarityThreshold());
+
+        logger.debug("Query received - tenant: {}, question length: {}, idempotency_key: {}", 
+            tenantId, question.length(), idempotencyKey);
 
         String transformedQuery = transformQuery(question, queryContext);
 
@@ -113,10 +148,15 @@ public class RetrievalPipelineService {
         List<ChunkCandidate> candidates = hybridRetrieve(tenantId, transformedQuery, Math.max(topK * 4, topK));
         List<ChunkCandidate> reranked = rerank(candidates, topK, threshold);
         int retrievalMs = Math.toIntExact(System.currentTimeMillis() - retrievalStart);
+        
+        logger.debug("Retrieval completed - candidates: {}, reranked: {}, time: {}ms", 
+            candidates.size(), reranked.size(), retrievalMs);
 
         long generationStart = System.currentTimeMillis();
         String answer = groundedGeneration(question, reranked);
         int generationMs = Math.toIntExact(System.currentTimeMillis() - generationStart);
+        
+        logger.debug("Generation completed - answer length: {}, time: {}ms", answer.length(), generationMs);
 
         List<RetrievalChunk> chunks = new ArrayList<>();
         for (ChunkCandidate candidate : reranked) {
@@ -131,7 +171,11 @@ public class RetrievalPipelineService {
             ));
         }
 
-        return new RetrievalQueryResponse(
+        long totalMs = System.currentTimeMillis() - totalStart;
+        logger.info("Query pipeline complete - tenant: {}, total time: {}ms (retrieval: {}ms, generation: {}ms)", 
+            tenantId, totalMs, retrievalMs, generationMs);
+
+        RetrievalQueryResponse response = new RetrievalQueryResponse(
             tenantId,
             question,
             transformedQuery,
@@ -143,6 +187,88 @@ public class RetrievalPipelineService {
             generationMs,
             chunks
         );
+
+        // Cache idempotent response for 24 hours if idempotency key provided
+        if (idempotencyKey != null) {
+            String cachedKey = "idempotency:" + idempotencyKey;
+            redisTemplate.opsForValue().set(cachedKey, response, java.time.Duration.ofHours(24));
+            logger.debug("Cached idempotent response for key: {}", idempotencyKey);
+        }
+
+        return response;
+    }
+
+    public RetrievalQueryResponse queryFallback(RetrievalQueryRequest request, Exception ex) {
+        logger.warn("Circuit breaker fallback triggered - returning cached or error response", ex);
+        return new RetrievalQueryResponse(
+            request.tenantId() != null ? request.tenantId() : defaultTenant,
+            request.question(),
+            transformQuery(request.question(), request.queryContext() != null ? request.queryContext() : ""),
+            "fallback",
+            "Service temporarily unavailable. Please try again later.",
+            0,
+            false,
+            0,
+            0,
+            Collections.emptyList()
+        );
+    }
+
+    private String getIdempotencyKey() {
+        try {
+            ServletRequestAttributes attrs = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+            if (attrs != null) {
+                return attrs.getRequest().getHeader("Idempotency-Key");
+            }
+        } catch (Exception e) {
+            logger.debug("Could not retrieve idempotency key from request context", e);
+        }
+        return null;
+    }
+
+    private String resolveTenantId(RetrievalQueryRequest request) {
+        String requestedTenant = request.tenantId() == null || request.tenantId().isBlank()
+            ? defaultTenant : request.tenantId().trim();
+        String authenticatedTenant = getAuthenticatedTenantId();
+
+        if (authenticatedTenant == null || authenticatedTenant.isBlank()) {
+            return requestedTenant;
+        }
+
+        if (!authenticatedTenant.equals(requestedTenant)) {
+            throw new AccessDeniedException("Requested tenant does not match authenticated tenant");
+        }
+
+        return authenticatedTenant;
+    }
+
+    private String getAuthenticatedTenantId() {
+        try {
+            ServletRequestAttributes attrs = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+            if (attrs != null) {
+                Object tenant = attrs.getRequest().getAttribute("tenantId");
+                if (tenant instanceof String tenantId && !tenantId.isBlank()) {
+                    return tenantId;
+                }
+            }
+        } catch (Exception e) {
+            logger.debug("Could not retrieve authenticated tenant from request context", e);
+        }
+        return null;
+    }
+
+    private int validateTopK(int topK) {
+        if (topK < 1 || topK > 20) {
+            throw new IllegalArgumentException("topK must be between 1 and 20");
+        }
+        return topK;
+    }
+
+    private double validateThreshold(double threshold) {
+        if (threshold < 0.0 || threshold > 1.0) {
+            throw new IllegalArgumentException("similarityThreshold must be between 0.0 and 1.0");
+        }
+        return threshold;
     }
 
     private String transformQuery(String question, String queryContext) {
@@ -182,7 +308,8 @@ public class RetrievalPipelineService {
             return List.of();
         }
 
-        float[] embedding = embeddingModel.embed(transformedQuery);
+        float[] embedding = embeddingCache.computeIfAbsent(transformedQuery, 
+            q -> embeddingModel.embed(q));
         if (embedding == null || embedding.length == 0) {
             return List.of();
         }

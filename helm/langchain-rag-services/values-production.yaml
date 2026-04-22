@@ -1,0 +1,41 @@
+global:
+  environment: "production"
+  logLevel: "INFO"
+
+replicaCount: 3
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 20
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+
+resources:
+  limits:
+    cpu: "2000m"
+    memory: "2Gi"
+  requests:
+    cpu: "1000m"
+    memory: "1Gi"
+
+ingress:
+  hosts:
+    - host: "rag-services.example.com"
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: "rag-services-tls"
+      hosts:
+        - "rag-services.example.com"
+
+networkPolicy:
+  enabled: true
+
+environment:
+  LOG_LEVEL: "INFO"

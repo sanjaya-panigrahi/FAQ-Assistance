@@ -8,11 +8,16 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
 from .config import settings
 from .schemas import RagResponse
+from .faq_pattern_registry import get_registry
+from .semantic_intents import SemanticIntentMatcher
 
 
 class AgenticPipeline:
     CHROMA_TENANT = "default_tenant"
     CHROMA_DATABASE = "default_database"
+
+    def __init__(self) -> None:
+        self._intent_matcher = SemanticIntentMatcher(model=settings.openai_embedding_model)
 
     def health(self) -> dict:
         try:
@@ -62,10 +67,23 @@ class AgenticPipeline:
                 orchestrationStrategy="langgraph-multistep-routing",
             )
 
+        # Try structured extraction using pattern registry
+        registry = get_registry()
+        structured_answer = registry.extract_faq_answer(question, context)
+        if structured_answer and "No structured answer" not in structured_answer:
+            return RagResponse(
+                answer=structured_answer,
+                chunksUsed=len(docs),
+                strategy="pattern-registry+structured-extraction",
+                orchestrationStrategy="langgraph-multistep-routing",
+            )
+
         llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
         answer = llm.invoke(
             (
-                "You are a MyTechStore support assistant. Follow route intent and answer from FAQ context only.\n\n"
+                "You are a MyTechStore support assistant. Answer only from FAQ context and do not guess. "
+                "If a general policy is present, apply it directly to the asked product type. "
+                "Do not invent policy windows or generic caveats unless they appear in context.\n\n"
                 f"Route: {route}\n"
                 f"Question: {question}\n\n"
                 f"FAQ Context:\n{context}"
@@ -147,6 +165,14 @@ class AgenticPipeline:
         return extracted_docs
 
     def _route(self, question: str) -> str:
+        intent = self._intent_matcher.match(question)
+        if intent.name == "product_availability":
+            return "product_availability"
+        if intent.name == "policy":
+            return "policy"
+        if intent.name == "logistics":
+            return "logistics"
+
         q = question.lower()
         if any(t in q for t in ["return", "refund", "replace", "warranty"]):
             return "policy"
@@ -155,11 +181,21 @@ class AgenticPipeline:
         return "general"
 
     def _expand_query(self, question: str, route: str) -> str:
+        q = question.lower()
+        if route == "product_availability" or (("product" in q or "products" in q) and (
+            "refurb" in q or "new" in q or "used" in q or "pre-owned" in q
+        )):
+            return (
+                f"{question} products availability new products refurbished products "
+                "certified refurbished"
+            )
         if route == "policy":
             return f"{question} return policy refund replacement warranty"
         if route == "logistics":
             return f"{question} shipping delivery tracking"
         return question
+
+
 
 
 pipeline = AgenticPipeline()

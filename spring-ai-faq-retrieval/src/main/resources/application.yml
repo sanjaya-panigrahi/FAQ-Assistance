@@ -1,9 +1,42 @@
 server:
   port: ${RETRIEVAL_SERVICE_PORT:9010}
+  compression:
+    enabled: true
+    min-response-size: 1024
+    mime-types: application/json,application/xml,text/html,text/xml,text/plain
+
+jwt:
+  secret: ${JWT_SECRET}
+  expiration: ${JWT_EXPIRATION:900000}
+  refresh-expiration: ${JWT_REFRESH_EXPIRATION:86400000}
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: ${SPRINGDOC_SWAGGER_UI_ENABLED:false}
+  api-docs:
+    path: /v3/api-docs
+  show-actuator: false
 
 spring:
   application:
     name: spring-ai-faq-retrieval
+  autoconfigure:
+    exclude: org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
+  cache:
+    type: redis
+    redis:
+      time-to-live: 3600000
+      key-prefix: "faq-retrieval:"
+  redis:
+    host: ${REDIS_HOST:redis-cache}
+    port: ${REDIS_PORT:6379}
+    timeout: 2000ms
+    jedis:
+      pool:
+        max-active: 20
+        max-idle: 10
+        min-idle: 5
   ai:
     openai:
       api-key: ${OPENAI_API_KEY}
@@ -18,7 +51,112 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        include: health,info,metrics,prometheus,circuitbreakers,retries,bulkheads,ratelimiters
+  endpoint:
+    health:
+      show-details: when-authorized
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+  health:
+    circuitbreakers:
+      enabled: true
+
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        registerHealthIndicator: true
+        slidingWindowSize: 10
+        failureRateThreshold: 50.0
+        slowCallRateThreshold: 50.0
+        slowCallDurationThreshold: 2000ms
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        waitDurationInOpenState: 5s
+        recordExceptions:
+          - java.io.IOException
+          - java.net.ConnectException
+          - org.springframework.web.client.HttpServerErrorException
+    instances:
+      chromaRetrieval:
+        baseConfig: default
+        waitDurationInOpenState: 10s
+      embeddingService:
+        baseConfig: default
+        waitDurationInOpenState: 8s
+      generationService:
+        baseConfig: default
+  
+  retry:
+    configs:
+      default:
+        registerHealthIndicator: true
+        maxAttempts: 3
+        waitDuration: 500ms
+        retryExceptions:
+          - java.io.IOException
+          - java.net.ConnectException
+    instances:
+      chromaRetrieval:
+        baseConfig: default
+        maxAttempts: 4
+        waitDuration: 1000ms
+      embeddingService:
+        baseConfig: default
+        maxAttempts: 3
+  
+  bulkhead:
+    configs:
+      default:
+        registerHealthIndicator: true
+        maxConcurrentCalls: 100
+        maxWaitDuration: 10ms
+    instances:
+      chromaRetrieval:
+        baseConfig: default
+        maxConcurrentCalls: 50
+      embeddingService:
+        baseConfig: default
+        maxConcurrentCalls: 30
+      generationService:
+        baseConfig: default
+        maxConcurrentCalls: 20
+  
+  ratelimiter:
+    configs:
+      default:
+        registerHealthIndicator: true
+        limitRefreshPeriod: 1m
+        limitForPeriod: 1000
+        timeoutDuration: 5s
+    instances:
+      api-limiter:
+        baseConfig: default
+        limitForPeriod: 100
+        limitRefreshPeriod: 1m
+
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLE_PROBABILITY:1.0}
+  zipkin:
+    tracing:
+      endpoint: ${ZIPKIN_URL:http://zipkin:9411}/api/v2/spans
+
+security:
+  cors:
+    allowed-origins: ${SECURITY_CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
+    allowed-methods: ${SECURITY_CORS_ALLOWED_METHODS:GET,POST,OPTIONS}
+    allowed-headers: ${SECURITY_CORS_ALLOWED_HEADERS:Authorization,Content-Type,Idempotency-Key,X-Request-ID}
+
+auth:
+  registration-enabled: ${AUTH_REGISTRATION_ENABLED:false}
+  bootstrap:
+    username: ${AUTH_BOOTSTRAP_USERNAME:}
+    password-hash: ${AUTH_BOOTSTRAP_PASSWORD_HASH:}
+    tenant-id: ${AUTH_BOOTSTRAP_TENANT_ID:}
+    role: ${AUTH_BOOTSTRAP_ROLE:ADMIN}
 
 retrieval:
   chroma-url: ${APP_CHROMA_URL:http://chroma-faq:8000}

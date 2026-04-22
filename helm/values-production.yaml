@@ -1,0 +1,57 @@
+# Production environment values
+replicaCount: 3
+
+image:
+  tag: main
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 20
+  targetCPUUtilizationPercentage: 60
+  targetMemoryUtilizationPercentage: 75
+
+resources:
+  limits:
+    cpu: 2000m
+    memory: 2Gi
+  requests:
+    cpu: 1500m
+    memory: 1Gi
+
+ingress:
+  hosts:
+    - host: faq-retrieval.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: faq-retrieval-tls
+      hosts:
+        - faq-retrieval.example.com
+
+env:
+  SPRING_PROFILES_ACTIVE: prod
+  LOGGING_LEVEL_ROOT: INFO
+  LOGGING_LEVEL_COM_MYTECHSTORE: INFO
+
+livenessProbe:
+  initialDelaySeconds: 90
+  periodSeconds: 30
+  failureThreshold: 3
+
+readinessProbe:
+  initialDelaySeconds: 45
+  periodSeconds: 10
+  failureThreshold: 2
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+
+networkPolicy:
+  enabled: true
+
+persistence:
+  enabled: true
+  size: 5Gi

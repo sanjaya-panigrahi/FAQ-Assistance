@@ -1,0 +1,24 @@
+apiVersion: v2
+name: langchain-rag-services
+description: Helm chart for LangChain RAG Python microservices
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+
+keywords:
+  - langchain
+  - rag
+  - retrieval
+  - python
+  - fastapi
+
+maintainers:
+  - name: FAQ Assistance Team
+    email: team@example.com
+
+home: https://github.com/example/faq-assistance
+sources:
+  - https://github.com/example/faq-assistance
+
+annotations:
+  category: "AI/ML"

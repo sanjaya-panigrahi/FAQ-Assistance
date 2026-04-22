@@ -1,10 +1,22 @@
 import chromadb
+import sys
+from pathlib import Path
 
 from langchain_chroma import Chroma
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
 from .config import settings
 from .schemas import RagResponse
+
+# Add shared-patterns to path for pattern registry import
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "shared-patterns"))
+from faq_pattern_registry import get_registry
+
+
+NO_CONTEXT_ANSWER = (
+    "I could not find grounded FAQ evidence for that question. "
+    "Please refine the question or ingest more tenant data."
+)
 
 
 class CorrectivePipeline:
@@ -33,21 +45,31 @@ class CorrectivePipeline:
 
         llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
         if not docs:
-            fallback_answer = llm.invoke(
-                "No FAQ context was retrieved. Respond with a safe short answer and suggest contacting support."
-            ).content
             return RagResponse(
-                answer=str(fallback_answer),
+                answer=NO_CONTEXT_ANSWER,
                 chunksUsed=0,
                 strategy="chroma-direct+fallback-no-context",
                 orchestrationStrategy="langchain-light-fallback",
             )
 
         context = "\n\n".join(doc.page_content for doc in docs)
+        
+        # Try structured extraction using pattern registry
+        registry = get_registry()
+        structured_answer = registry.extract_faq_answer(question, context)
+        if structured_answer and "No structured answer" not in structured_answer:
+            return RagResponse(
+                answer=structured_answer,
+                chunksUsed=len(docs),
+                strategy="pattern-registry+structured-extraction",
+                orchestrationStrategy="langchain-light-fallback",
+            )
+
         answer = llm.invoke(
             (
-                "You are a corrective RAG assistant. Use FAQ context first. "
-                "If context is weak, provide a cautious answer and say what is uncertain.\n\n"
+                "You are a corrective RAG assistant. Answer only from FAQ context and do not guess. "
+                "If a general policy is present, apply it directly to the asked product type. "
+                "Do not invent policy windows or generic caveats unless they appear in context.\n\n"
                 f"Question: {question}\n\n"
                 f"FAQ Context:\n{context}"
             )

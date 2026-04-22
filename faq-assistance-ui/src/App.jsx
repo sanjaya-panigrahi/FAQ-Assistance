@@ -11,14 +11,18 @@ const fallbackCustomers = [
 
 const services = [
   { id: "agentic",    label: "Agentic RAG" },
-  { id: "pipeline",   label: "RAG Pipeline" },
+  { id: "retrieval",  label: "RAG Retrieval" },
+  { id: "graph",      label: "Graph RAG" },
+  { id: "corrective", label: "Corrective RAG" },
+  { id: "multimodal", label: "Multimodal RAG" },
+  { id: "hierarchical", label: "Hierarchical RAG" },
 ];
 
 // Base URLs keyed by [framework][serviceId]
 const serviceUrls = {
   "spring-ai": {
     agentic:      `${kongGatewayUrl}/spring/agentic/api`,
-    pipeline:     `${kongGatewayUrl}/spring/retrieval/api`,
+    retrieval:    `${kongGatewayUrl}/spring/retrieval/api`,
     graph:        `${kongGatewayUrl}/spring/graph/api`,
     corrective:   `${kongGatewayUrl}/spring/corrective/api`,
     multimodal:   `${kongGatewayUrl}/spring/multimodal/api`,
@@ -26,7 +30,7 @@ const serviceUrls = {
   },
   langchain: {
     agentic:      `${kongGatewayUrl}/langchain/agentic/api`,
-    pipeline:     `${kongGatewayUrl}/langchain/retrieval/api`,
+    retrieval:    `${kongGatewayUrl}/langchain/retrieval/api`,
     graph:        `${kongGatewayUrl}/langchain/graph/api`,
     corrective:   `${kongGatewayUrl}/langchain/corrective/api`,
     multimodal:   `${kongGatewayUrl}/langchain/multimodal/api`,
@@ -34,7 +38,7 @@ const serviceUrls = {
   },
   langgraph: {
     agentic:      `${kongGatewayUrl}/langgraph/agentic/api`,
-    pipeline:     `${kongGatewayUrl}/langgraph/retrieval/api`,
+    retrieval:    `${kongGatewayUrl}/langgraph/retrieval/api`,
     graph:        `${kongGatewayUrl}/langgraph/graph/api`,
     corrective:   `${kongGatewayUrl}/langgraph/corrective/api`,
     multimodal:   `${kongGatewayUrl}/langgraph/multimodal/api`,
@@ -100,6 +104,8 @@ function App() {
   const imageInputRef = useRef(null);
   const presetImportInputRef = useRef(null);
   const documentPresetImportInputRef = useRef(null);
+  const graphRebuildCacheRef = useRef(new Set());
+  const graphCustomerDataCacheRef = useRef(new Set());
 
   const selectedService = useMemo(
     () => services.find((service) => service.id === selectedServiceId) ?? services[0],
@@ -261,7 +267,11 @@ function App() {
       { id: "langchain", label: "LangChain", framework: "LangChain", pattern: "all" },
       { id: "langgraph", label: "LangGraph", framework: "LangGraph", pattern: "all" },
       { id: "agentic-rag", label: "Agentic RAG", framework: "all", pattern: "Agentic RAG" },
-      { id: "rag-pipeline", label: "RAG Pipeline", framework: "all", pattern: "RAG Pipeline" },
+      { id: "rag-retrieval", label: "RAG Retrieval", framework: "all", pattern: "RAG Retrieval" },
+      { id: "graph-rag", label: "Graph RAG", framework: "all", pattern: "Graph RAG" },
+      { id: "corrective-rag", label: "Corrective RAG", framework: "all", pattern: "Corrective RAG" },
+      { id: "multimodal-rag", label: "Multimodal RAG", framework: "all", pattern: "Multimodal RAG" },
+      { id: "hierarchical-rag", label: "Hierarchical RAG", framework: "all", pattern: "Hierarchical RAG" },
     ],
     []
   );
@@ -340,7 +350,7 @@ function App() {
   const trimmedNewCustomerName = newCustomerName.trim();
   const hasQuestion = trimmedQuestion.length > 0;
   const hasTranscript = transcript.length > 0;
-  const searchEnabled = selectedServiceId === "agentic" || selectedServiceId === "pipeline";
+  const searchEnabled = true;
   const canAsk = searchEnabled && !loading && !uploadingFaq && hasQuestion;
   const canExport = !loading && hasTranscript;
   const canStartNewConversation = !loading && (hasTranscript || Boolean(error) || Boolean(uploadedFaqName));
@@ -448,6 +458,62 @@ function App() {
 
     const text = await response.text();
     return text ? { message: text } : {};
+  }
+
+  async function ensureGraphCustomerHasData(customerId) {
+    const normalizedCustomerId = customerId.trim();
+    if (!normalizedCustomerId) {
+      throw new Error("customerId is required for Graph RAG.");
+    }
+
+    if (graphCustomerDataCacheRef.current.has(normalizedCustomerId)) {
+      return;
+    }
+
+    const response = await fetch(
+      `${ingestionApiUrl}/customers/${encodeURIComponent(normalizedCustomerId)}/documents`
+    );
+    const data = await parseResponse(response);
+
+    if (!response.ok) {
+      throw new Error(data.message || `Could not verify customer documents (status ${response.status}).`);
+    }
+
+    const documents = Array.isArray(data) ? data : [];
+    const hasIndexedData = documents.some((entry) => {
+      const status = String(entry.processingStatus || "").toUpperCase();
+      return status === "" || status === "COMPLETED" || status === "INDEXED" || status === "EMBEDDING";
+    });
+
+    if (!hasIndexedData) {
+      throw new Error(
+        `No ingested FAQ data found for customer ${normalizedCustomerId}. Upload FAQ data before using Graph RAG.`
+      );
+    }
+
+    graphCustomerDataCacheRef.current.add(normalizedCustomerId);
+  }
+
+  async function ensureGraphIndexReady(frameworkValue, customerId) {
+    const normalizedCustomerId = customerId.trim();
+    await ensureGraphCustomerHasData(normalizedCustomerId);
+
+    const cacheKey = `${frameworkValue}::${normalizedCustomerId}`;
+    if (graphRebuildCacheRef.current.has(cacheKey)) {
+      return;
+    }
+
+    const graphBaseUrl = resolveUrl(frameworkValue, "graph");
+    const response = await fetch(`${graphBaseUrl}/index/rebuild`, { method: "POST" });
+    const data = await parseResponse(response);
+
+    if (!response.ok) {
+      throw new Error(
+        data.detail || data.message || `Graph index rebuild failed for ${frameworkValue} (status ${response.status}).`
+      );
+    }
+
+    graphRebuildCacheRef.current.add(cacheKey);
   }
 
   async function loadCustomers(preferredCustomerId) {
@@ -1034,6 +1100,10 @@ function App() {
     const baseUrl = overrideUrl ?? resolveUrl(framework, service.id);
 
     try {
+      if (service.id === "graph") {
+        await ensureGraphIndexReady(framework, trimmedCustomerId);
+      }
+
       const isMultimodalUpload = service.id === "multimodal" && uploadedImage;
       let response;
 
@@ -1052,7 +1122,7 @@ function App() {
         let endpoint = `${baseUrl}/query/ask`;
         let payload;
 
-        if (service.id === "pipeline") {
+        if (service.id === "retrieval") {
           endpoint = `${baseUrl}/retrieval/query`;
           payload = {
             tenantId: trimmedCustomerId,
@@ -1111,6 +1181,10 @@ function App() {
       compareFrameworks.map(async (fw) => {
         const startedAt = performance.now();
         try {
+          if (selectedService.id === "graph") {
+            await ensureGraphIndexReady(fw.value, trimmedCustomerId);
+          }
+
           const isMultimodalUpload = selectedService.id === "multimodal" && uploadedImage;
           let response;
 
@@ -1129,7 +1203,7 @@ function App() {
             let endpoint = `${fw.url}/query/ask`;
             let payload;
 
-            if (selectedService.id === "pipeline") {
+            if (selectedService.id === "retrieval") {
               endpoint = `${fw.url}/retrieval/query`;
               payload = {
                 tenantId: trimmedCustomerId,
@@ -1311,6 +1385,10 @@ function App() {
       setFaqUploadResult(data);
       setFaqUploadStatus(`Indexed ${data.originalFileName || selectedFaqFile.name} for ${trimmedCustomerId}.`);
       setUploadedFaqName(data.originalFileName || selectedFaqFile.name);
+      graphCustomerDataCacheRef.current.delete(trimmedCustomerId);
+      frameworkOptions.forEach((option) => {
+        graphRebuildCacheRef.current.delete(`${option.value}::${trimmedCustomerId}`);
+      });
       await loadCustomerDocuments();
       setSelectedFaqFile(null);
       if (fileInputRef.current) {
@@ -1686,11 +1764,7 @@ function App() {
           </div>
 
           <p className="supporting-note">{customerStatus}</p>
-          {!searchEnabled && (
-            <p className="supporting-note">
-              Search is temporarily enabled only for Agentic RAG and RAG Pipeline.
-            </p>
-          )}
+          {!searchEnabled && <p className="supporting-note">Selected RAG pattern is temporarily unavailable.</p>}
           {mode === "compare" && (
             <p className="supporting-note">
               Compare mode shows the selected RAG pattern for all frameworks for the selected customer.

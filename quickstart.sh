@@ -22,6 +22,11 @@ for arg in "$@"; do
     fi
 done
 
+if [[ " $* " != *" --with-elk "* ]]; then
+    echo "Starting with lightweight Docker log viewer at http://localhost:9999"
+    echo "Add --with-elk if you need Elasticsearch/Kibana/Logstash."
+fi
+
 if [ "$has_kong_flag" = "false" ]; then
     exec bash "${RUNNER}" --with-kong "$@"
 else

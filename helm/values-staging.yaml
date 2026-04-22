@@ -1,0 +1,40 @@
+# Staging environment values
+replicaCount: 1
+
+image:
+  tag: develop
+
+autoscaling:
+  enabled: false
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 500m
+    memory: 512Mi
+
+ingress:
+  hosts:
+    - host: faq-retrieval-staging.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: faq-retrieval-staging-tls
+      hosts:
+        - faq-retrieval-staging.example.com
+
+env:
+  SPRING_PROFILES_ACTIVE: staging
+  LOGGING_LEVEL_ROOT: DEBUG
+  LOGGING_LEVEL_COM_MYTECHSTORE: DEBUG
+
+livenessProbe:
+  initialDelaySeconds: 60
+  periodSeconds: 30
+
+readinessProbe:
+  initialDelaySeconds: 30
+  periodSeconds: 10

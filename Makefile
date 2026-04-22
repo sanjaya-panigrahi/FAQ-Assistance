@@ -1,4 +1,4 @@
-.PHONY: help build-all up-all down-all down-rebuild-up rebuild-indexes test-all clean clean-orphans
+.PHONY: help build-all up-all up-all-limited down-all down-rebuild-up rebuild-indexes test-all clean clean-orphans
 .PHONY: spring-build spring-up spring-down spring-test
 .PHONY: langchain-build langchain-up langchain-down langchain-test
 .PHONY: langgraph-build langgraph-up langgraph-down langgraph-test
@@ -34,6 +34,9 @@ help:
 	@echo "  langgraph-up           Start LangGraph services"
 	@echo "  langgraph-down         Stop LangGraph services"
 	@echo "  langgraph-test         Test LangGraph endpoints"
+	@echo ""
+	@echo "Resource management:"
+	@echo "  up-all-limited         Start all stacks WITH memory/CPU limits (recommended for local dev)"
 
 # === All Stacks ===
 
@@ -46,6 +49,12 @@ up-all: spring-up langchain-up langgraph-up
 	@echo "Spring AI UI:  http://localhost:5173"
 	@echo "LangChain:     http://localhost:8181-8185"
 	@echo "LangGraph:     http://localhost:8281-8285"
+
+# Starts all stacks with per-container memory/CPU caps to prevent OOM on local machines
+up-all-limited:
+	@echo "Starting all stacks with resource limits..."
+	docker compose -f docker-compose.master.yml -f docker-compose.resources.yml -f docker-compose.kong.yml up -d --remove-orphans
+	@echo "✓ All stacks running with memory/CPU limits"
 
 down-all: spring-down langchain-down langgraph-down
 	@echo "✓ All stacks shut down"
@@ -125,11 +134,11 @@ langchain-rebuild-indexes:
 
 langchain-test:
 	@echo "Testing LangChain endpoints..."
-	@curl -s http://localhost:8181/actuator/health | grep -q "UP" && echo "✓ Port 8181" || echo "✗ Port 8181"
-	@curl -s http://localhost:8182/actuator/health | grep -q "UP" && echo "✓ Port 8182" || echo "✗ Port 8182"
-	@curl -s http://localhost:8183/actuator/health | grep -q "UP" && echo "✓ Port 8183" || echo "✗ Port 8183"
-	@curl -s http://localhost:8184/actuator/health | grep -q "UP" && echo "✓ Port 8184" || echo "✗ Port 8184"
-	@curl -s http://localhost:8185/actuator/health | grep -q "UP" && echo "✓ Port 8185" || echo "✗ Port 8185"
+	@curl -fsS http://localhost:8181/actuator/health | grep -q '"status"[[:space:]]*:[[:space:]]*"UP"' && echo "✓ Port 8181" || echo "✗ Port 8181"
+	@curl -fsS http://localhost:8182/actuator/health | grep -q '"status"[[:space:]]*:[[:space:]]*"UP"' && echo "✓ Port 8182" || echo "✗ Port 8182"
+	@curl -fsS http://localhost:8183/actuator/health | grep -q '"status"[[:space:]]*:[[:space:]]*"UP"' && echo "✓ Port 8183" || echo "✗ Port 8183"
+	@curl -fsS http://localhost:8184/actuator/health | grep -q '"status"[[:space:]]*:[[:space:]]*"UP"' && echo "✓ Port 8184" || echo "✗ Port 8184"
+	@curl -fsS http://localhost:8185/actuator/health | grep -q '"status"[[:space:]]*:[[:space:]]*"UP"' && echo "✓ Port 8185" || echo "✗ Port 8185"
 
 # === LangGraph (Python) ===
 
@@ -155,8 +164,8 @@ langgraph-rebuild-indexes:
 
 langgraph-test:
 	@echo "Testing LangGraph endpoints..."
-	@curl -s http://localhost:8281/actuator/health | grep -q "UP" && echo "✓ Port 8281" || echo "✗ Port 8281"
-	@curl -s http://localhost:8282/actuator/health | grep -q "UP" && echo "✓ Port 8282" || echo "✗ Port 8282"
-	@curl -s http://localhost:8283/actuator/health | grep -q "UP" && echo "✓ Port 8283" || echo "✗ Port 8283"
-	@curl -s http://localhost:8284/actuator/health | grep -q "UP" && echo "✓ Port 8284" || echo "✗ Port 8284"
-	@curl -s http://localhost:8285/actuator/health | grep -q "UP" && echo "✓ Port 8285" || echo "✗ Port 8285"
+	@curl -fsS http://localhost:8281/actuator/health | grep -q '"status"[[:space:]]*:[[:space:]]*"UP"' && echo "✓ Port 8281" || echo "✗ Port 8281"
+	@curl -fsS http://localhost:8282/actuator/health | grep -q '"status"[[:space:]]*:[[:space:]]*"UP"' && echo "✓ Port 8282" || echo "✗ Port 8282"
+	@curl -fsS http://localhost:8283/actuator/health | grep -q '"status"[[:space:]]*:[[:space:]]*"UP"' && echo "✓ Port 8283" || echo "✗ Port 8283"
+	@curl -fsS http://localhost:8284/actuator/health | grep -q '"status"[[:space:]]*:[[:space:]]*"UP"' && echo "✓ Port 8284" || echo "✗ Port 8284"
+	@curl -fsS http://localhost:8285/actuator/health | grep -q '"status"[[:space:]]*:[[:space:]]*"UP"' && echo "✓ Port 8285" || echo "✗ Port 8285"

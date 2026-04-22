@@ -5,6 +5,7 @@ metadata:
   namespace: faq-assistance
 spec:
   replicas: 1
+  revisionHistoryLimit: 3
   selector:
     matchLabels:
       app: kong
@@ -13,9 +14,10 @@ spec:
       labels:
         app: kong
     spec:
+      automountServiceAccountToken: false
       containers:
       - name: kong
-        image: kong:latest
+        image: kong:3.7
         env:
         - name: KONG_DATABASE
           value: "off"
@@ -67,6 +69,7 @@ metadata:
   namespace: faq-assistance
 spec:
   replicas: 1
+  revisionHistoryLimit: 3
   selector:
     matchLabels:
       app: konga-db
@@ -75,16 +78,26 @@ spec:
       labels:
         app: konga-db
     spec:
+      automountServiceAccountToken: false
       containers:
       - name: postgres
         image: postgres:9.6-alpine
         env:
         - name: POSTGRES_USER
-          value: "konga"
+          valueFrom:
+            secretKeyRef:
+              name: konga-secrets
+              key: postgres-user
         - name: POSTGRES_PASSWORD
-          value: "konga"
+          valueFrom:
+            secretKeyRef:
+              name: konga-secrets
+              key: postgres-password
         - name: POSTGRES_DB
-          value: "konga"
+          valueFrom:
+            secretKeyRef:
+              name: konga-secrets
+              key: postgres-db
         ports:
         - containerPort: 5432
         volumeMounts:
@@ -118,6 +131,7 @@ metadata:
   namespace: faq-assistance
 spec:
   replicas: 1
+  revisionHistoryLimit: 3
   selector:
     matchLabels:
       app: konga
@@ -126,16 +140,19 @@ spec:
       labels:
         app: konga
     spec:
+      automountServiceAccountToken: false
       initContainers:
       - name: konga-prepare
         image: pantsel/konga:0.14.9
+        command: ["/bin/sh", "-ec"]
         args:
-        - -c
-        - prepare
-        - -a
-        - postgres
-        - -u
-        - postgresql://konga:konga@konga-db:5432/konga
+        - konga prepare -a postgres -u "$DB_URI"
+        env:
+        - name: DB_URI
+          valueFrom:
+            secretKeyRef:
+              name: konga-secrets
+              key: db-uri
       containers:
       - name: konga
         image: pantsel/konga:0.14.9
@@ -143,7 +160,10 @@ spec:
         - name: DB_ADAPTER
           value: "postgres"
         - name: DB_URI
-          value: "postgresql://konga:konga@konga-db:5432/konga"
+          valueFrom:
+            secretKeyRef:
+              name: konga-secrets
+              key: db-uri
         - name: NODE_ENV
           value: "production"
         - name: KONGA_HOOK_TIMEOUT
@@ -179,6 +199,8 @@ metadata:
   namespace: faq-assistance
 spec:
   replicas: 1
+  revisionHistoryLimit: 3
+  minReadySeconds: 10
   selector:
     matchLabels:
       app: faq-ui
@@ -187,22 +209,29 @@ spec:
       labels:
         app: faq-ui
     spec:
+      automountServiceAccountToken: false
       containers:
       - name: faq-ui
-        image: faq-assistance:faq-ui-latest
+        image: faq-assistance:faq-ui-1.0.0
         imagePullPolicy: IfNotPresent
         env:
         - name: VITE_API_BASE_URL
-          value: "http://localhost:8000"
+          value: "/api"
         ports:
         - containerPort: 5173
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+          seccompProfile:
+            type: RuntimeDefault
         resources:
           requests:
-            memory: "128Mi"
-            cpu: "100m"
+            memory: "32Mi"
+            cpu: "50m"
           limits:
-            memory: "256Mi"
-            cpu: "250m"
+            memory: "64Mi"
+            cpu: "100m"
         livenessProbe:
           httpGet:
             path: /
@@ -217,6 +246,8 @@ metadata:
   namespace: faq-assistance
 spec:
   replicas: 1
+  revisionHistoryLimit: 3
+  minReadySeconds: 10
   selector:
     matchLabels:
       app: rag-analytics
@@ -225,9 +256,10 @@ spec:
       labels:
         app: rag-analytics
     spec:
+      automountServiceAccountToken: false
       containers:
       - name: rag-analytics
-        image: faq-assistance:rag-analytics-latest
+        image: faq-assistance:rag-analytics-1.0.0
         imagePullPolicy: IfNotPresent
         env:
         - name: ANALYTICS_DB_HOST
@@ -279,6 +311,12 @@ spec:
               key: mysql-password
         ports:
         - containerPort: 9191
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+          seccompProfile:
+            type: RuntimeDefault
         resources:
           requests:
             memory: "256Mi"
@@ -300,6 +338,8 @@ metadata:
   namespace: faq-assistance
 spec:
   replicas: 1
+  revisionHistoryLimit: 3
+  minReadySeconds: 10
   selector:
     matchLabels:
       app: faq-ingestion
@@ -308,9 +348,10 @@ spec:
       labels:
         app: faq-ingestion
     spec:
+      automountServiceAccountToken: false
       containers:
       - name: faq-ingestion
-        image: faq-assistance:faq-ingestion-latest
+        image: faq-assistance:faq-ingestion-1.0.0
         imagePullPolicy: IfNotPresent
         env:
         - name: CHROMA_HOST
@@ -344,6 +385,12 @@ spec:
           value: "-Xms256m -Xmx768m"
         ports:
         - containerPort: 9000
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+          seccompProfile:
+            type: RuntimeDefault
         resources:
           requests:
             memory: "512Mi"

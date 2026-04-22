@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from sqlalchemy import case, func, select
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -60,6 +61,8 @@ def get_dashboard(
         / func.count(QueryEvent.id)
     )
 
+    # Add time window filter (last 7 days) to improve query performance
+    time_window = datetime.utcnow() - timedelta(days=7)
     leaderboard_stmt = (
         select(
             QueryEvent.framework,
@@ -69,8 +72,9 @@ def get_dashboard(
             func.avg(QueryEvent.latency_ms).label("avg_latency_ms"),
             func.avg(QueryEvent.effective_rag_score).label("avg_effective_rag_score"),
         )
-        .where(*filters)
+        .where(QueryEvent.created_at >= time_window, *filters)
         .group_by(QueryEvent.framework, QueryEvent.rag_pattern)
+        .having(func.count(QueryEvent.id) >= 2)  # Only include patterns with 2+ runs
         .order_by(func.avg(QueryEvent.effective_rag_score).desc(), func.avg(QueryEvent.latency_ms).asc())
         .limit(12)
     )

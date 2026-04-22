@@ -5,6 +5,8 @@ metadata:
   namespace: faq-assistance
 spec:
   replicas: 2
+  revisionHistoryLimit: 3
+  minReadySeconds: 10
   selector:
     matchLabels:
       app: spring-ai-agentic
@@ -15,9 +17,10 @@ spec:
         pattern: agentic
         framework: spring-ai
     spec:
+      automountServiceAccountToken: false
       containers:
       - name: spring-ai-agentic
-        image: faq-assistance:spring-ai-agentic-latest
+        image: faq-assistance:spring-ai-agentic-1.0.0
         imagePullPolicy: IfNotPresent
         env:
         - name: CHROMA_URL
@@ -32,6 +35,11 @@ spec:
             secretKeyRef:
               name: openai-secrets
               key: openai-api-key
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: auth-secrets
+              key: jwt-secret
         - name: OPENAI_CHAT_MODEL
           valueFrom:
             configMapKeyRef:
@@ -49,6 +57,12 @@ spec:
               key: FAQ_SOURCE_FILE
         ports:
         - containerPort: 8081
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+          seccompProfile:
+            type: RuntimeDefault
         resources:
           requests:
             memory: "512Mi"
@@ -78,6 +92,8 @@ metadata:
   namespace: faq-assistance
 spec:
   replicas: 2
+  revisionHistoryLimit: 3
+  minReadySeconds: 10
   selector:
     matchLabels:
       app: spring-ai-faq-retrieval
@@ -88,9 +104,10 @@ spec:
         pattern: retrieval
         framework: spring-ai
     spec:
+      automountServiceAccountToken: false
       containers:
       - name: spring-ai-faq-retrieval
-        image: faq-assistance:spring-ai-faq-retrieval-latest
+        image: faq-assistance:spring-ai-faq-retrieval-1.0.0
         imagePullPolicy: IfNotPresent
         env:
         - name: CHROMA_URL
@@ -105,6 +122,11 @@ spec:
             secretKeyRef:
               name: openai-secrets
               key: openai-api-key
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: auth-secrets
+              key: jwt-secret
         - name: OPENAI_CHAT_MODEL
           valueFrom:
             configMapKeyRef:
@@ -122,6 +144,101 @@ spec:
               key: FAQ_SOURCE_FILE
         ports:
         - containerPort: 9010
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+          seccompProfile:
+            type: RuntimeDefault
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "1000m"
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 9010
+          initialDelaySeconds: 60
+          periodSeconds: 15
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 9010
+          initialDelaySeconds: 45
+          periodSeconds: 10
+          failureThreshold: 3
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spring-ai-neo4j-graph
+  namespace: faq-assistance
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  minReadySeconds: 10
+  selector:
+    matchLabels:
+      app: spring-ai-neo4j-graph
+  template:
+    metadata:
+      labels:
+        app: spring-ai-neo4j-graph
+        pattern: graph
+        framework: spring-ai
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: spring-ai-neo4j-graph
+        image: faq-assistance:spring-ai-neo4j-graph-1.0.0
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: CHROMA_URL
+          value: "http://chroma-faq:8000"
+        - name: NEO4J_URI
+          value: "bolt://neo4j-unified:7687"
+        - name: CHROMA_COLLECTION_PREFIX
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: CHROMA_COLLECTION_PREFIX
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: openai-secrets
+              key: openai-api-key
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: auth-secrets
+              key: jwt-secret
+        - name: OPENAI_CHAT_MODEL
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: OPENAI_CHAT_MODEL
+        - name: OPENAI_EMBEDDING_MODEL
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: OPENAI_EMBEDDING_MODEL
+        - name: FAQ_SOURCE_FILE
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: FAQ_SOURCE_FILE
+        ports:
+        - containerPort: 8082
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+          seccompProfile:
+            type: RuntimeDefault
         resources:
           requests:
             memory: "512Mi"
@@ -132,14 +249,281 @@ spec:
         livenessProbe:
           httpGet:
             path: /actuator/health
-            port: 9010
+            port: 8082
           initialDelaySeconds: 120
           periodSeconds: 15
           failureThreshold: 5
         readinessProbe:
           httpGet:
             path: /actuator/health
-            port: 9010
+            port: 8082
+          initialDelaySeconds: 90
+          periodSeconds: 10
+          failureThreshold: 5
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spring-ai-corrective
+  namespace: faq-assistance
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  minReadySeconds: 10
+  selector:
+    matchLabels:
+      app: spring-ai-corrective
+  template:
+    metadata:
+      labels:
+        app: spring-ai-corrective
+        pattern: corrective
+        framework: spring-ai
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: spring-ai-corrective
+        image: faq-assistance:spring-ai-corrective-1.0.0
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: CHROMA_URL
+          value: "http://chroma-faq:8000"
+        - name: NEO4J_URI
+          value: "bolt://neo4j-unified:7687"
+        - name: CHROMA_COLLECTION_PREFIX
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: CHROMA_COLLECTION_PREFIX
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: openai-secrets
+              key: openai-api-key
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: auth-secrets
+              key: jwt-secret
+        - name: OPENAI_CHAT_MODEL
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: OPENAI_CHAT_MODEL
+        - name: OPENAI_EMBEDDING_MODEL
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: OPENAI_EMBEDDING_MODEL
+        - name: FAQ_SOURCE_FILE
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: FAQ_SOURCE_FILE
+        ports:
+        - containerPort: 8083
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+          seccompProfile:
+            type: RuntimeDefault
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8083
+          initialDelaySeconds: 120
+          periodSeconds: 15
+          failureThreshold: 5
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8083
+          initialDelaySeconds: 90
+          periodSeconds: 10
+          failureThreshold: 5
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spring-ai-multimodal
+  namespace: faq-assistance
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  minReadySeconds: 10
+  selector:
+    matchLabels:
+      app: spring-ai-multimodal
+  template:
+    metadata:
+      labels:
+        app: spring-ai-multimodal
+        pattern: multimodal
+        framework: spring-ai
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: spring-ai-multimodal
+        image: faq-assistance:spring-ai-multimodal-1.0.0
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: CHROMA_URL
+          value: "http://chroma-faq:8000"
+        - name: NEO4J_URI
+          value: "bolt://neo4j-unified:7687"
+        - name: CHROMA_COLLECTION_PREFIX
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: CHROMA_COLLECTION_PREFIX
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: openai-secrets
+              key: openai-api-key
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: auth-secrets
+              key: jwt-secret
+        - name: OPENAI_CHAT_MODEL
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: OPENAI_CHAT_MODEL
+        - name: OPENAI_EMBEDDING_MODEL
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: OPENAI_EMBEDDING_MODEL
+        - name: FAQ_SOURCE_FILE
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: FAQ_SOURCE_FILE
+        ports:
+        - containerPort: 8084
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+          seccompProfile:
+            type: RuntimeDefault
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8084
+          initialDelaySeconds: 120
+          periodSeconds: 15
+          failureThreshold: 5
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8084
+          initialDelaySeconds: 90
+          periodSeconds: 10
+          failureThreshold: 5
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spring-ai-hierarchical
+  namespace: faq-assistance
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  minReadySeconds: 10
+  selector:
+    matchLabels:
+      app: spring-ai-hierarchical
+  template:
+    metadata:
+      labels:
+        app: spring-ai-hierarchical
+        pattern: hierarchical
+        framework: spring-ai
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: spring-ai-hierarchical
+        image: faq-assistance:spring-ai-hierarchical-1.0.0
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: CHROMA_URL
+          value: "http://chroma-faq:8000"
+        - name: NEO4J_URI
+          value: "bolt://neo4j-unified:7687"
+        - name: CHROMA_COLLECTION_PREFIX
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: CHROMA_COLLECTION_PREFIX
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: openai-secrets
+              key: openai-api-key
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: auth-secrets
+              key: jwt-secret
+        - name: OPENAI_CHAT_MODEL
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: OPENAI_CHAT_MODEL
+        - name: OPENAI_EMBEDDING_MODEL
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: OPENAI_EMBEDDING_MODEL
+        - name: FAQ_SOURCE_FILE
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: FAQ_SOURCE_FILE
+        ports:
+        - containerPort: 8085
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+          seccompProfile:
+            type: RuntimeDefault
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8085
+          initialDelaySeconds: 120
+          periodSeconds: 15
+          failureThreshold: 5
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8085
           initialDelaySeconds: 90
           periodSeconds: 10
           failureThreshold: 5

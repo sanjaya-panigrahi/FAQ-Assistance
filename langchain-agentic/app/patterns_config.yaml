@@ -1,0 +1,35 @@
+patterns:
+  - id: return_policy
+    keywords: ["return", "policy"]
+    priority: 100
+    regex: "within\\s+(\\d+)\\s+days\\s+for\\s+unopened\\s+items?\\s+and\\s+within\\s+(\\d+)\\s+days\\s+for\\s+defective\\s+items?"
+    format_string: "The return policy allows returns within {1} days for unopened items and within {2} days for defective items."
+    description: "Extract return policy with unopened and defective item windows"
+
+  - id: warranty_coverage
+    keywords: ["warranty", "coverage", "protection"]
+    priority: 90
+    regex: "(\\d+)\\s+(year|month)s?\\s+(?:limited\\s+)?warranty"
+    format_string: "Warranty coverage is {1} {2}."
+    description: "Extract warranty period in years or months"
+
+  - id: shipping_time
+    keywords: ["shipping", "delivery", "how long"]
+    priority: 80
+    regex: "(\\d+)(?:\\s*[-–]\\s*\\d+)?\\s+(?:business\\s+)?days?\\s+(?:for\\s+)?(?:shipping|delivery)"
+    format_string: "Shipping takes approximately {1} days."
+    description: "Extract shipping/delivery time window"
+
+  - id: defect_handling
+    keywords: ["defect", "defective", "damage", "broken"]
+    priority: 85
+    regex: "defective.*?(replacement|refund|repair|credit)"
+    format_string: "For defective items, we offer {1}."
+    description: "Extract defect handling policy"
+
+  - id: replacement_availability
+    keywords: ["replacement", "available", "stock"]
+    priority: 75
+    regex: "replacement.*?within\\s+(\\d+)\\s+(?:business\\s+)?days?"
+    format_string: "Replacement items are available within {1} days."
+    description: "Extract replacement availability timeline"

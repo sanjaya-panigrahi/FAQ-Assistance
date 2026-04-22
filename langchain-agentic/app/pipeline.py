@@ -1,6 +1,7 @@
 import chromadb
 
 from langchain.agents import AgentExecutor, create_openai_tools_agent
+from langchain.tools import tool
 from langchain.tools.retriever import create_retriever_tool
 from langchain_chroma import Chroma
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -8,9 +9,49 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
 from .config import settings
 from .schemas import RagResponse
+from .faq_pattern_registry import get_registry
+from .semantic_intents import SemanticIntentMatcher
+
+
+NO_CONTEXT_ANSWER = (
+    "I could not find grounded FAQ evidence for that question. "
+    "Please refine the question or ingest more tenant data."
+)
+
+
+def _expand_retrieval_query(question: str, intent_name: str = "general") -> str:
+    q = (question or "").lower()
+    extras: list[str] = []
+    if intent_name == "product_availability" or (("product" in q or "products" in q) and (
+        "refurb" in q or "new" in q or "used" in q or "pre-owned" in q
+    )):
+        extras.append("products availability new products refurbished products certified refurbished")
+    if intent_name == "policy" or ("return" in q or "refund" in q or "replace" in q):
+        extras.append("return policy returns refunds replacements defective items unopened items")
+    if intent_name == "policy" or ("warranty" in q or "damage" in q or "protection" in q):
+        extras.append("warranty extended warranty accidental damage protection repair coverage")
+    if intent_name == "logistics" or ("delivery" in q or "shipping" in q):
+        extras.append("shipping delivery tracking express same-day order status")
+    return " ".join([question, *extras]).strip()
+
+
+# Create extraction tool using pattern registry
+@tool
+def extract_faq_answer(question: str, context: str) -> str:
+    """Extract structured answers from FAQ context using intelligent pattern matching.
+    
+    Handles: return policies, warranties, shipping times, defect handling, and more.
+    Returns formatted answer if pattern matches the question, otherwise indicates no structured answer.
+    """
+    registry = get_registry()
+    result = registry.extract_faq_answer(question, context)
+    return result or "No structured answer found for this question type."
 
 
 class AgenticPipeline:
+    def __init__(self) -> None:
+        self._intent_matcher = SemanticIntentMatcher(model=settings.openai_embedding_model)
+
     def health(self) -> dict:
         try:
             client = chromadb.HttpClient(host=settings.chroma_host, port=settings.chroma_port)
@@ -36,6 +77,30 @@ class AgenticPipeline:
         except Exception as exc:
             raise RuntimeError(f"ChromaDB connection failed for collection {collection_name}") from exc
 
+        intent = self._intent_matcher.match(question)
+        retrieval_query = _expand_retrieval_query(question, intent.name)
+        docs = retriever.invoke(retrieval_query)
+        if not docs:
+            return RagResponse(
+                answer=NO_CONTEXT_ANSWER,
+                chunksUsed=0,
+                strategy="chroma-direct+fallback-no-context",
+                orchestrationStrategy="langchain-agent",
+            )
+
+        combined_context = "\n\n".join(doc.page_content for doc in docs)
+        
+        # Try structured extraction using pattern registry
+        registry = get_registry()
+        structured_answer = registry.extract_faq_answer(question, combined_context)
+        if structured_answer and "No structured answer" not in structured_answer:
+            return RagResponse(
+                answer=structured_answer,
+                chunksUsed=len(docs),
+                strategy="pattern-registry+structured-extraction",
+                orchestrationStrategy="langchain-agent",
+            )
+
         retriever_tool = create_retriever_tool(
             retriever,
             "mytechstore_faq_retriever",
@@ -47,24 +112,28 @@ class AgenticPipeline:
             [
                 (
                     "system",
-                    "You are a MyTechStore support assistant. Always consult tools first for policy questions and answer concisely.",
+                    "You are a MyTechStore support assistant. Always use the FAQ retrieval tool and answer only from retrieved context. "
+                    "If a general policy is present, apply it directly to the asked product type. "
+                    "Do not invent policy windows or add generic caveats unless those caveats appear in context. "
+                    "When you find relevant context, use the extract_faq_answer tool to structure the response if applicable.",
                 ),
                 ("human", "{input}"),
                 MessagesPlaceholder(variable_name="agent_scratchpad"),
             ]
         )
 
-        agent = create_openai_tools_agent(llm, [retriever_tool], prompt)
-        executor = AgentExecutor(agent=agent, tools=[retriever_tool], verbose=False)
+        agent = create_openai_tools_agent(llm, [retriever_tool, extract_faq_answer], prompt)
+        executor = AgentExecutor(agent=agent, tools=[retriever_tool, extract_faq_answer], verbose=False)
         result = executor.invoke({"input": question})
-        docs = retriever.invoke(question)
 
         return RagResponse(
             answer=str(result.get("output", "No answer returned.")),
             chunksUsed=len(docs),
-            strategy="chroma-direct+langchain-agent",
+            strategy=f"chroma-direct+langchain-agent+semantic-intent:{intent.name}",
             orchestrationStrategy="langchain-agent",
         )
+
+
 
 
 pipeline = AgenticPipeline()

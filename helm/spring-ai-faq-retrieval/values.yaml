@@ -1,0 +1,166 @@
+# Default values for spring-ai-faq-retrieval
+# This is a YAML-formatted file with sensible defaults
+
+replicaCount: 2
+
+image:
+  repository: ghcr.io/yourorg/spring-ai-faq-retrieval
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "9010"
+  prometheus.io/path: "/actuator/prometheus"
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: true
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 9010
+  annotations: {}
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+  hosts:
+    - host: faq-retrieval.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: faq-retrieval-tls
+      hosts:
+        - faq-retrieval.example.com
+
+resources:
+  limits:
+    cpu: 2000m
+    memory: 2Gi
+  requests:
+    cpu: 1000m
+    memory: 1Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+    - weight: 100
+      podAffinityTerm:
+        labelSelector:
+          matchExpressions:
+          - key: app
+            operator: In
+            values:
+            - spring-ai-faq-retrieval
+        topologyKey: kubernetes.io/hostname
+
+# Environment variables
+env:
+  SPRING_PROFILES_ACTIVE: prod
+  SPRING_AI_OPENAI_CHAT_MODEL: gpt-4o-mini
+  SPRING_AI_OPENAI_EMBEDDING_MODEL: text-embedding-3-small
+  RETRIEVAL_DEFAULT_TENANT: smoke_tenant
+  APP_RAG_TOP_K_RESULTS: "10"
+  APP_RAG_SIMILARITY_THRESHOLD: "0.4"
+  APP_RAG_ENABLE_RERANKING: "true"
+  LOGGING_LEVEL_ROOT: INFO
+  LOGGING_LEVEL_COM_MYTECHSTORE: DEBUG
+
+# Sensitive environment variables from secrets
+envFrom:
+  - secretRef:
+      name: faq-retrieval-secrets
+
+# Health checks
+livenessProbe:
+  httpGet:
+    path: /actuator/health
+    port: 9010
+  initialDelaySeconds: 60
+  periodSeconds: 30
+  timeoutSeconds: 10
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /actuator/health/readiness
+    port: 9010
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# Persistent volume claims
+persistence:
+  enabled: false
+  storageClass: "standard"
+  accessMode: ReadWriteOnce
+  size: 1Gi
+  mountPath: /app/data
+
+# ConfigMap data
+configMap:
+  data: {}
+
+# Secrets (should be created separately for security)
+secrets:
+  create: false
+  data: {}
+
+# Service Monitor for Prometheus (if using Prometheus Operator)
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  path: /actuator/prometheus
+
+# Network Policy
+networkPolicy:
+  enabled: false
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+      - namespaceSelector:
+          matchLabels:
+            name: ingress-nginx
+  egress:
+    - to:
+      - namespaceSelector: {}
+      ports:
+      - protocol: TCP
+        port: 443

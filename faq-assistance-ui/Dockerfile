@@ -11,10 +11,11 @@ COPY --from=deps /app/node_modules /app/node_modules
 COPY . .
 RUN npm run build
 
-FROM node:20-alpine
-WORKDIR /app
-ENV NODE_ENV=production
-COPY --from=build /app/dist /app/dist
-RUN npm install -g serve
+# Final stage: nginx:alpine is ~8 MB vs ~175 MB for node:20-alpine
+# Using nginx to serve the pre-built Vite bundle is far more memory/CPU efficient
+FROM nginx:1.27-alpine
+COPY --from=build /app/dist /usr/share/nginx/html
+# SPA routing config (try_files -> index.html, static-asset caching)
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 5173
-ENTRYPOINT ["serve", "-s", "dist", "-l", "5173"]
+CMD ["nginx", "-g", "daemon off;"]

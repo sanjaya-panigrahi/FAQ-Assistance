@@ -20,6 +20,7 @@ WITH_KONG="false"
 WITH_CONSUL="false"
 WITH_KONG_CONSUL="false"
 WITH_KONGA="false"
+WITH_ELK="false"
 
 usage() {
     cat <<'EOF'
@@ -33,11 +34,12 @@ Options:
     --minimal-demo          Start only demo-critical services (Agentic + Pipeline per framework)
                                                     Services: chroma-faq, faq-ingestion, spring-ai-agentic, spring-ai-faq-retrieval,
                                                                         langchain-agentic, langchain-retrieval-service,
-                                        langgraph-agentic, langgraph-retrieval-service, faq-ui
-    --with-kong              Include Kong gateway overlay
-    --with-consul            Include Consul discovery overlay
-    --with-kong-consul       Use Kong with Consul DNS discovery (requires --with-kong --with-consul)
-    --with-konga             Include Konga UI overlay (requires --with-kong)
+                                                                        langgraph-agentic, langgraph-retrieval-service, faq-ui
+    --with-kong             Include Kong gateway overlay
+    --with-consul           Include Consul discovery overlay
+    --with-kong-consul      Use Kong with Consul DNS discovery (requires --with-kong --with-consul)
+    --with-konga            Include Konga UI overlay (requires --with-kong)
+    --with-elk              Include Elasticsearch + Kibana + Logstash overlay
   -h, --help               Show this help message
 
 Service IDs:
@@ -51,6 +53,7 @@ Examples:
   ./run-all-stacks.sh --rebuild-services spring-agentic,langchain-agentic
     ./run-all-stacks.sh --with-kong
     ./run-all-stacks.sh --with-kong --with-consul --with-kong-consul --with-konga
+    ./run-all-stacks.sh --with-elk
 EOF
 }
 
@@ -92,6 +95,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --with-konga)
             WITH_KONGA="true"
+            shift
+            ;;
+        --with-elk)
+            WITH_ELK="true"
             shift
             ;;
         -h|--help)
@@ -233,6 +240,10 @@ if [[ "$WITH_KONGA" == "true" ]]; then
         exit 1
     fi
     COMPOSE_FILES+=(-f docker-compose.konga.yml)
+fi
+
+if [[ "$WITH_ELK" == "true" ]]; then
+    COMPOSE_FILES+=(-f docker-compose.elk.yml)
 fi
 
 echo -e "${BLUE}Compose overlays:${NC} ${COMPOSE_FILES[*]}"

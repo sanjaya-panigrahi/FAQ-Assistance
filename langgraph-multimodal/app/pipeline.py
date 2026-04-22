@@ -1,10 +1,22 @@
 import chromadb
+import sys
+from pathlib import Path
 
 from langchain_chroma import Chroma
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
 from .config import settings
 from .schemas import VisionRagResponse
+
+# Add shared-patterns to path for pattern registry import
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "shared-patterns"))
+from faq_pattern_registry import get_registry
+
+
+NO_CONTEXT_ANSWER = (
+    "I could not find grounded FAQ evidence for that question. "
+    "Please refine the question or ingest more tenant data."
+)
 
 
 class MultimodalPipeline:
@@ -33,12 +45,30 @@ class MultimodalPipeline:
         use_image_branch = bool((image_description or "").strip())
         query = f"{question} {image_description}".strip() if use_image_branch else question
         docs = vector_store.similarity_search(query, k=4)
+        if not docs:
+            return VisionRagResponse(
+                answer=NO_CONTEXT_ANSWER,
+                chunksUsed=0,
+                strategy="chroma-direct+fallback-no-context",
+                orchestrationStrategy="langgraph-multimodal-branching",
+            )
         context = "\n\n".join(doc.page_content for doc in docs)
 
-        llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
-        answer = llm.invoke(
+        
+        # Try structured extraction using pattern registry
+        registry = get_registry()
+        structured_answer = registry.extract_faq_answer(question, combined_context)
+        if structured_answer and "No structured answer" not in structured_answer:
+            return VisionRagResponse(
+                answer=structured_answer,
+                chunksUsed=len(docs),
+                strategy="pattern-registry+structured-extraction",
+                orchestrationStrategy="langgraph-multimodal-branching",
+            )
             (
-                "You are a multimodal FAQ assistant. Use image hints only when present; otherwise rely on FAQ context.\n\n"
+                "You are a multimodal FAQ assistant. Use image hints only when present; otherwise rely on FAQ context. "
+                "If a general policy is present, apply it directly to the asked product type. "
+                "Do not invent policy windows or generic caveats unless they appear in context.\n\n"
                 f"Image Branch: {use_image_branch}\n"
                 f"Question: {question}\n"
                 f"Image Signals: {image_description or 'none'}\n\n"
@@ -53,5 +83,8 @@ class MultimodalPipeline:
             orchestrationStrategy="langgraph-multimodal-branching",
         )
 
-
-pipeline = MultimodalPipeline()
+    @staticmethod
+    def _extract_deterministic_return_policy(question: str, context: str) -> str | None:
+        q = (question or "").lower()
+        if "return" not in q or "policy" not in q:
+        return VisionRagResponse(

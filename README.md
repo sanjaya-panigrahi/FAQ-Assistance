@@ -29,6 +29,7 @@ export OPENAI_API_KEY="your-key-here"
 ./run-all-stacks.sh --with-kong
 ./run-all-stacks.sh --with-kong --with-consul --with-kong-consul
 ./run-all-stacks.sh --with-kong --with-konga
+./run-all-stacks.sh --with-elk
 ```
 
 This script will:
@@ -60,7 +61,12 @@ This script will:
 ./quickstart.sh --with-kong
 ./quickstart.sh --with-kong --with-consul --with-kong-consul
 ./quickstart.sh --with-kong --with-konga
+./quickstart.sh --with-elk
 ```
+
+Default local logging is intentionally lightweight now:
+- **Dozzle** at `http://localhost:9999` for live Docker container logs
+- **ELK** is available only when explicitly requested with `--with-elk`
 
 Supported service IDs:
 - spring-agentic, spring-neo4j, spring-corrective, spring-multimodal, spring-hierarchical
@@ -86,7 +92,44 @@ export OPENAI_API_KEY="your-key-here"
 
 docker compose -f docker-compose.master.yml up --build -d
 docker compose -f docker-compose.master.yml down
+
+# Optional full ELK overlay
+docker compose -f docker-compose.master.yml -f docker-compose.elk.yml up --build -d
 ```
+
+### Option 4: Domain-Grouped Compose Stacks
+```bash
+# 1) Start shared/common infra first
+docker compose -f docker-compose.common.yml up -d
+
+# 2) Start one or more functional groups
+docker compose -f docker-compose.common.yml -f docker-compose.rag-pipeline.yml up -d
+docker compose -f docker-compose.common.yml -f docker-compose.agentic.yml up -d
+docker compose -f docker-compose.common.yml -f docker-compose.graph.yml up -d
+docker compose -f docker-compose.common.yml -f docker-compose.corrective.yml up -d
+docker compose -f docker-compose.common.yml -f docker-compose.multimodal.yml up -d
+docker compose -f docker-compose.common.yml -f docker-compose.hierarchical.yml up -d
+docker compose -f docker-compose.common.yml -f docker-compose.retrieval.yml up -d
+docker compose -f docker-compose.common.yml -f docker-compose.ingestion.yml up -d
+
+# 3) Start everything by group composition
+docker compose \
+   -f docker-compose.common.yml \
+   -f docker-compose.rag-pipeline.yml \
+   -f docker-compose.agentic.yml \
+   -f docker-compose.ingestion.yml up -d
+```
+
+Grouped files:
+- `docker-compose.common.yml` (Consul, Kong, Konga, Neo4j, Chroma, Redis, analytics, UI)
+- `docker-compose.rag-pipeline.yml` (Spring AI + LangChain + LangGraph retrieval services)
+- `docker-compose.agentic.yml` (Spring AI + LangChain + LangGraph agentic services)
+- `docker-compose.graph.yml` (Spring AI + LangChain + LangGraph graph services)
+- `docker-compose.corrective.yml` (Spring AI + LangChain + LangGraph corrective services)
+- `docker-compose.multimodal.yml` (Spring AI + LangChain + LangGraph multimodal services)
+- `docker-compose.hierarchical.yml` (Spring AI + LangChain + LangGraph hierarchical services)
+- `docker-compose.retrieval.yml` (Spring AI + LangChain + LangGraph retrieval services)
+- `docker-compose.ingestion.yml` (FAQ ingestion service)
 
 ---
 

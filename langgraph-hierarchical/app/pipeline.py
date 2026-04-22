@@ -1,10 +1,22 @@
 import chromadb
+import sys
+from pathlib import Path
 
 from langchain_chroma import Chroma
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
 from .config import settings
 from .schemas import RagResponse
+
+# Add shared-patterns to path for pattern registry import
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "shared-patterns"))
+from faq_pattern_registry import get_registry
+
+
+NO_CONTEXT_ANSWER = (
+    "I could not find grounded FAQ evidence for that question. "
+    "Please refine the question or ingest more tenant data."
+)
 
 
 class HierarchicalPipeline:
@@ -33,12 +45,30 @@ class HierarchicalPipeline:
             embedding_function=embeddings,
         )
         docs = vector_store.similarity_search(query, k=4)
+        if not docs:
+            return RagResponse(
+                answer=NO_CONTEXT_ANSWER,
+                chunksUsed=0,
+                strategy="chroma-direct+fallback-no-context",
+                orchestrationStrategy="langgraph-hierarchy-multistep",
+                selectedSection=selected_section,
+            )
         context = "\n\n".join(doc.page_content for doc in docs)
 
-        llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
-        answer = llm.invoke(
-            (
-                "You are hierarchical RAG assistant for MyTechStore. Use selected section and answer from context only.\n\n"
+        
+        # Try structured extraction using pattern registry
+        registry = get_registry()
+        structured_answer = registry.extract_faq_answer(question, combined_context)
+        if structured_answer and "No structured answer" not in structured_answer:
+            return RagResponse(
+                answer=structured_answer,
+                chunksUsed=len(docs),
+                strategy="pattern-registry+structured-extraction",
+                orchestrationStrategy="langgraph-hierarchy-multistep",
+                selectedSection=section,
+            )
+                "If context provides a general policy and no product-specific exception, use the general policy. "
+                "Do not invent policy windows or generic caveats unless they appear in context.\n\n"
                 f"Section selected: {selected_section}\n"
                 f"Question: {question}\n\n"
                 f"FAQ Context:\n{context}"
@@ -63,5 +93,8 @@ class HierarchicalPipeline:
             return "Warranty and Support"
         return "General FAQ"
 
-
-pipeline = HierarchicalPipeline()
+    @staticmethod
+    def _extract_deterministic_return_policy(question: str, context: str) -> str | None:
+        q = (question or "").lower()
+        if "return" not in q or "policy" not in q:
+            return "Returns and Refunds"

@@ -19,6 +19,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.HashMap;
+import com.mytechstore.shared.registry.FAQPatternRegistry;
 
 import com.mytechstore.vision.dto.VisionRagResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -48,6 +49,7 @@ public class VisionPipelineService {
     private final EmbeddingModel embeddingModel;
     private final String chromaUrl;
     private final String collectionPrefix;
+    private final FAQPatternRegistry patternRegistry = new FAQPatternRegistry();
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final HttpClient httpClient = HttpClient.newBuilder()
             .version(HttpClient.Version.HTTP_1_1)
@@ -92,9 +94,38 @@ public class VisionPipelineService {
             chunksUsed = hits.size();
         }
 
+        String patternId = patternRegistry.classifyQuestion(question);
+        String structuredAnswer = patternRegistry.extractFaqAnswer(question, context);
+        if ("return_policy".equals(patternId) && structuredAnswer == null) {
+            List<String> policyChunks = queryChroma(customerId,
+                    "What is your return policy? returns unopened items defective items", 4);
+            if (!policyChunks.isEmpty()) {
+                LinkedHashSet<String> mergedChunks = new LinkedHashSet<>();
+                mergedChunks.addAll(chromaChunks);
+                mergedChunks.addAll(policyChunks);
+                context = String.join("\n\n", mergedChunks);
+                chunksUsed = Math.max(chunksUsed, mergedChunks.size());
+                structuredAnswer = patternRegistry.extractFaqAnswer(question, context);
+            }
+        }
+
+        if (structuredAnswer == null && patternId != null) {
+            if (faqEntries.isEmpty()) {
+                faqEntries = parseFaqDocuments();
+            }
+            structuredAnswer = patternRegistry.extractFaqAnswer(
+                    question,
+                    faqEntries.stream().map(Document::getText).collect(Collectors.joining("\n\n"))
+            );
+        }
+        if (structuredAnswer != null && !structuredAnswer.isBlank()) {
+            return new VisionRagResponse(structuredAnswer, chunksUsed, "pattern-registry+structured-extraction",
+                    "springai-multimodal-rag", null, null, List.of());
+        }
+
         String prompt = "You are MyTechStore multimodal FAQ assistant. "
-                + "Use FAQ context plus image metadata to answer. If the question is about a specific product type and the"
-                + " FAQ context gives a general policy with no product-specific exception, answer with the general policy.\n\n"
+                + "Use FAQ context plus image metadata to answer. If a general policy is present, apply it directly"
+                + " to the asked product type. Do not invent policy windows or generic caveats unless they appear in context.\n\n"
                 + "Image metadata: " + (imageDescription == null ? "not provided" : imageDescription) + "\n\n"
                 + "FAQ context:\n" + context + "\n\n"
                 + "Question: " + question;

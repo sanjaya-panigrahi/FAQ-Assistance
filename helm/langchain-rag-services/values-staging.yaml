@@ -1,0 +1,30 @@
+global:
+  environment: "staging"
+  logLevel: "DEBUG"
+
+replicaCount: 1
+
+autoscaling:
+  enabled: false
+
+resources:
+  limits:
+    cpu: "500m"
+    memory: "768Mi"
+  requests:
+    cpu: "250m"
+    memory: "384Mi"
+
+ingress:
+  hosts:
+    - host: "staging-rag-services.example.com"
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: "staging-rag-services-tls"
+      hosts:
+        - "staging-rag-services.example.com"
+
+environment:
+  LOG_LEVEL: "DEBUG"

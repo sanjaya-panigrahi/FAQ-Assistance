@@ -1,0 +1,19 @@
+apiVersion: v2
+name: spring-ai-faq-retrieval
+description: Spring AI FAQ Retrieval Service Helm Chart
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - spring-boot
+  - spring-ai
+  - faq
+  - retrieval
+  - rag
+maintainers:
+  - name: Your Organization
+    email: devops@example.com
+home: https://github.com/yourorg/faq-assistance
+sources:
+  - https://github.com/yourorg/faq-assistance
+dependencies: []

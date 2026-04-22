@@ -1,0 +1,241 @@
+{
+  "alerts": [
+    {
+      "name": "High Error Rate Alert",
+      "description": "Alert when error rate exceeds 5% in the last 5 minutes",
+      "condition": {
+        "metric": "severity:critical",
+        "operator": ">=",
+        "threshold": 5,
+        "timeRange": "5m"
+      },
+      "severity": "high",
+      "actions": [
+        {
+          "type": "email",
+          "recipients": ["alerts@example.com"]
+        },
+        {
+          "type": "slack",
+          "webhook": "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+        }
+      ]
+    },
+    {
+      "name": "Circuit Breaker Open Alert",
+      "description": "Alert when circuit breaker opens (>50% failure rate)",
+      "condition": {
+        "query": "message:*CircuitBreaker* AND message:*OPEN*",
+        "timeRange": "1m"
+      },
+      "severity": "critical",
+      "actions": [
+        {
+          "type": "email",
+          "recipients": ["critical-alerts@example.com"]
+        },
+        {
+          "type": "pagerduty",
+          "integration_key": "YOUR_INTEGRATION_KEY"
+        }
+      ]
+    },
+    {
+      "name": "High Latency Alert",
+      "description": "Alert when query latency exceeds 2 seconds",
+      "condition": {
+        "metric": "latency_ms",
+        "operator": ">",
+        "threshold": 2000,
+        "percentile": 95,
+        "timeRange": "5m"
+      },
+      "severity": "medium",
+      "actions": [
+        {
+          "type": "slack",
+          "webhook": "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+        }
+      ]
+    },
+    {
+      "name": "Rate Limiter Exceeded Alert",
+      "description": "Alert when rate limit is exceeded (429 responses)",
+      "condition": {
+        "query": "http_status:429",
+        "operator": ">=",
+        "threshold": 10,
+        "timeRange": "1m"
+      },
+      "severity": "medium",
+      "actions": [
+        {
+          "type": "slack",
+          "webhook": "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+        }
+      ]
+    },
+    {
+      "name": "Elasticsearch Disk Space Alert",
+      "description": "Alert when Elasticsearch disk usage exceeds 80%",
+      "condition": {
+        "metric": "elasticsearch_fs_total_available_in_bytes",
+        "operator": "<",
+        "threshold": 20,  // 20% remaining = 80% used
+        "percentile": 95,
+        "timeRange": "5m"
+      },
+      "severity": "high",
+      "actions": [
+        {
+          "type": "email",
+          "recipients": ["ops@example.com"]
+        }
+      ]
+    },
+    {
+      "name": "Service Unavailable Alert",
+      "description": "Alert when service is down (no successful requests for 2 minutes)",
+      "condition": {
+        "query": "severity:info OR severity:debug",
+        "operator": "==",
+        "threshold": 0,
+        "timeRange": "2m"
+      },
+      "severity": "critical",
+      "actions": [
+        {
+          "type": "pagerduty",
+          "integration_key": "YOUR_INTEGRATION_KEY"
+        },
+        {
+          "type": "email",
+          "recipients": ["critical-alerts@example.com"]
+        }
+      ]
+    },
+    {
+      "name": "Retry Storm Alert",
+      "description": "Alert when retry rate exceeds 20% (too many transient failures)",
+      "condition": {
+        "query": "message:*Retry* AND message:*attempt*",
+        "operator": ">=",
+        "threshold": 20,
+        "timeRange": "1m"
+      },
+      "severity": "medium",
+      "actions": [
+        {
+          "type": "slack",
+          "webhook": "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+        }
+      ]
+    },
+    {
+      "name": "Bulkhead Saturation Alert",
+      "description": "Alert when bulkhead concurrent call limit approaches 80%",
+      "condition": {
+        "query": "bulkhead_concurrent_calls",
+        "operator": ">",
+        "threshold": 80,
+        "percentile": 95,
+        "timeRange": "2m"
+      },
+      "severity": "medium",
+      "actions": [
+        {
+          "type": "slack",
+          "webhook": "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+        }
+      ]
+    }
+  ],
+  "dashboards": [
+    {
+      "name": "FAQ Retrieval Service - Real-time Monitoring",
+      "description": "Real-time metrics and logs for FAQ retrieval service",
+      "visualizations": [
+        {
+          "type": "metric",
+          "title": "Successful Queries (Last 5 min)",
+          "query": "severity:info AND message:*Query*"
+        },
+        {
+          "type": "metric",
+          "title": "Failed Queries (Last 5 min)",
+          "query": "severity:critical OR severity:warning"
+        },
+        {
+          "type": "line_chart",
+          "title": "Query Latency Trend",
+          "query": "latency_ms:*",
+          "interval": "1m"
+        },
+        {
+          "type": "pie_chart",
+          "title": "Error Distribution by Type",
+          "query": "severity:critical OR severity:warning"
+        },
+        {
+          "type": "table",
+          "title": "Recent Critical Errors",
+          "query": "severity:critical",
+          "limit": 50
+        },
+        {
+          "type": "line_chart",
+          "title": "Circuit Breaker State Changes",
+          "query": "CircuitBreaker AND (OPEN OR CLOSED OR HALF_OPEN)"
+        }
+      ]
+    },
+    {
+      "name": "Resilience Patterns - Performance",
+      "description": "Monitor circuit breaker, retry, bulkhead, and rate limiter patterns",
+      "visualizations": [
+        {
+          "type": "gauge",
+          "title": "Circuit Breaker Health (%)",
+          "query": "circuitbreaker_state:CLOSED"
+        },
+        {
+          "type": "metric",
+          "title": "Retry Attempts (Last hour)",
+          "query": "Retry AND attempt"
+        },
+        {
+          "type": "line_chart",
+          "title": "Bulkhead Utilization",
+          "query": "bulkhead_concurrent_calls:*"
+        },
+        {
+          "type": "metric",
+          "title": "Rate Limited Requests",
+          "query": "http_status:429"
+        }
+      ]
+    },
+    {
+      "name": "Infrastructure - ELK Stack Health",
+      "description": "Monitor Elasticsearch, Logstash, and Kibana infrastructure",
+      "visualizations": [
+        {
+          "type": "gauge",
+          "title": "Elasticsearch Disk Usage (%)"
+        },
+        {
+          "type": "metric",
+          "title": "Log Ingestion Rate (docs/sec)"
+        },
+        {
+          "type": "line_chart",
+          "title": "Logstash Pipeline Delay (ms)"
+        },
+        {
+          "type": "metric",
+          "title": "Total Indices"
+        }
+      ]
+    }
+  ]
+}

@@ -45,3 +45,19 @@ dist/
 Doc/
 
 .DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+.venv/
+venv/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+*.egg-info/
+dist/
+build/
+.mypy_cache/

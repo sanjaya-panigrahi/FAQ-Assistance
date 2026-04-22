@@ -23,6 +23,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.HashMap;
+import com.mytechstore.shared.registry.FAQPatternRegistry;
 
 import jakarta.annotation.PreDestroy;
 
@@ -63,6 +64,7 @@ public class StructuredPipelineService {
     private final EmbeddingModel embeddingModel;
     private final String chromaUrl;
     private final String collectionPrefix;
+    private final FAQPatternRegistry patternRegistry = new FAQPatternRegistry();
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final HttpClient httpClient = HttpClient.newBuilder()
             .version(HttpClient.Version.HTTP_1_1)
@@ -117,10 +119,39 @@ public class StructuredPipelineService {
             chunksUsed = hits.size();
         }
 
+        String patternId = patternRegistry.classifyQuestion(question);
+        String structuredAnswer = patternRegistry.extractFaqAnswer(question, context);
+        if ("return_policy".equals(patternId) && structuredAnswer == null) {
+            List<String> policyChunks = queryChroma(customerId,
+                    "What is your return policy? returns unopened items defective items Returns and Refunds", 4);
+            if (!policyChunks.isEmpty()) {
+                LinkedHashSet<String> mergedChunks = new LinkedHashSet<>();
+                mergedChunks.addAll(chromaChunks);
+                mergedChunks.addAll(policyChunks);
+                context = String.join("\n\n", mergedChunks);
+                chunksUsed = Math.max(chunksUsed, mergedChunks.size());
+                structuredAnswer = patternRegistry.extractFaqAnswer(question, context);
+            }
+        }
+
+        if (structuredAnswer == null && patternId != null) {
+            if (faqEntries.isEmpty()) {
+                faqEntries = parseFaqDocuments();
+            }
+            structuredAnswer = patternRegistry.extractFaqAnswer(
+                    question,
+                    faqEntries.stream().map(Document::getText).collect(Collectors.joining("\n\n"))
+            );
+        }
+        if (structuredAnswer != null && !structuredAnswer.isBlank()) {
+            return new RagResponse(structuredAnswer, selectedSection, chunksUsed,
+                    "pattern-registry+structured-extraction", "structured-retriever-layer");
+        }
+
         String prompt = "You are hierarchical RAG assistant for MyTechStore. "
                 + "Section selected: " + selectedSection + ". "
             + "Answer only from context. If the context provides a general policy and no product-specific exception, use the general policy. "
-            + "Keep the answer concise and do not add unrelated policy notes or website references.\n\n"
+            + "Do not invent policy windows or generic caveats unless they appear in context.\n\n"
                 + "Context:\n" + context + "\n\nQuestion: " + question;
         String answer = chatClient.prompt().user(prompt).call().content();
 

@@ -19,6 +19,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.HashMap;
+import com.mytechstore.shared.registry.FAQPatternRegistry;
 
 import com.mytechstore.guardrails.dto.RagResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -49,6 +50,7 @@ public class GuardrailPipelineService {
     private final EmbeddingModel embeddingModel;
     private final String chromaUrl;
     private final String collectionPrefix;
+    private final FAQPatternRegistry patternRegistry = new FAQPatternRegistry();
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final HttpClient httpClient = HttpClient.newBuilder()
             .version(HttpClient.Version.HTTP_1_1)
@@ -106,6 +108,35 @@ public class GuardrailPipelineService {
             chunksUsed = hits.size();
         }
 
+        String patternId = patternRegistry.classifyQuestion(question);
+        String structuredAnswer = patternRegistry.extractFaqAnswer(question, context);
+        if ("return_policy".equals(patternId) && structuredAnswer == null) {
+            List<String> policyChunks = queryChroma(customerId,
+                    "What is your return policy? returns unopened items defective items", 4);
+            if (!policyChunks.isEmpty()) {
+                LinkedHashSet<String> mergedChunks = new LinkedHashSet<>();
+                mergedChunks.addAll(chromaChunks);
+                mergedChunks.addAll(policyChunks);
+                context = String.join("\n\n", mergedChunks);
+                chunksUsed = Math.max(chunksUsed, mergedChunks.size());
+                structuredAnswer = patternRegistry.extractFaqAnswer(question, context);
+            }
+        }
+
+        if (structuredAnswer == null && patternId != null) {
+            if (faqEntries.isEmpty()) {
+                faqEntries = parseFaqDocuments();
+            }
+            structuredAnswer = patternRegistry.extractFaqAnswer(
+                    question,
+                    faqEntries.stream().map(Document::getText).collect(Collectors.joining("\n\n"))
+            );
+        }
+        if (structuredAnswer != null && !structuredAnswer.isBlank()) {
+            return new RagResponse(structuredAnswer, false, "ok", chunksUsed,
+                    "pattern-registry+structured-extraction", "springai-advisors-guardrails");
+        }
+
         if (context.isBlank()) {
             return new RagResponse("I do not have enough FAQ context to answer this safely.", false,
                     "low-retrieval-confidence", 0, "springai-advisors-guardrails-local",
@@ -113,8 +144,8 @@ public class GuardrailPipelineService {
         }
 
         String prompt = "You are a guarded MyTechStore FAQ assistant. "
-                + "Only answer from context and keep answer concise. If the question asks about a product category and the"
-                + " context provides a general store policy with no category-specific exception, answer using the general policy.\n\n"
+            + "Only answer from context and keep answer concise. If the context contains a general policy that applies,"
+            + " answer directly with that policy and do not add generic caveats unless the context explicitly includes them.\n\n"
                 + "Context:\n" + context + "\n\nQuestion: " + question;
         String answer = chatClient.prompt().user(prompt).call().content();
 

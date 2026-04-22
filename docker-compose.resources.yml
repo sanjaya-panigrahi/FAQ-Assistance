@@ -1,0 +1,197 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Resource-limit overlay for docker-compose.master.yml
+#
+# Usage (local development / CI):
+#   docker compose -f docker-compose.master.yml -f docker-compose.resources.yml up -d
+#
+# Why this file exists:
+#   Without memory limits Docker lets every container see all host RAM.
+#   The JVM then sizes its heap to 75 % of host RAM instead of container RAM,
+#   causing massive over-allocation.  Explicit limits force the JVM's
+#   UseContainerSupport to read the correct cgroup value.
+#
+# Sizing rationale:
+#   Spring AI (JVM)   : limit 768 m  → JVM heap ≈ 576 m (75 %)
+#   Python services   : limit 768 m  → comfortable for LangChain + ChromaDB
+#   Retrieval service : limit 1 g    → heavier embedding workload
+#   neo4j-unified     : limit 3.5 g  → already tuned to 1 g heap + 2 g max + 512 m page-cache
+#   dozzle            : limit 128 m  → lightweight Docker log viewer
+#   ingestion (faq)   : limit 1 g    → file I/O + embedding writes
+#   nginx (faq-ui)    : limit 64 m   → static-file server, almost no memory
+# ──────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── Infrastructure ──────────────────────────────────────────────────────────
+
+  neo4j-unified:
+    deploy:
+      resources:
+        limits:   { memory: 3584m, cpus: '2.0' }
+        reservations: { memory: 1024m, cpus: '0.5' }
+
+  redis-cache:
+    deploy:
+      resources:
+        limits:   { memory: 256m, cpus: '0.25' }
+        reservations: { memory: 64m, cpus: '0.1' }
+
+  chroma-faq:
+    deploy:
+      resources:
+        limits:   { memory: 512m, cpus: '0.5' }
+        reservations: { memory: 128m, cpus: '0.1' }
+
+  analytics-mysql:
+    deploy:
+      resources:
+        limits:   { memory: 512m, cpus: '0.5' }
+        reservations: { memory: 256m, cpus: '0.1' }
+
+  dozzle:
+    deploy:
+      resources:
+        limits:   { memory: 128m, cpus: '0.25' }
+        reservations: { memory: 32m, cpus: '0.05' }
+
+  zipkin:
+    deploy:
+      resources:
+        limits:   { memory: 384m, cpus: '0.5' }
+        reservations: { memory: 128m, cpus: '0.1' }
+
+  # ── Spring AI services (JVM — heap bounded to 75% of limit = ~576 m) ────────
+
+  spring-ai-agentic:
+    deploy:
+      resources:
+        limits:   { memory: 768m, cpus: '1.0' }
+        reservations: { memory: 384m, cpus: '0.25' }
+
+  spring-ai-neo4j-graph:
+    deploy:
+      resources:
+        limits:   { memory: 768m, cpus: '1.0' }
+        reservations: { memory: 384m, cpus: '0.25' }
+
+  spring-ai-corrective:
+    deploy:
+      resources:
+        limits:   { memory: 768m, cpus: '1.0' }
+        reservations: { memory: 384m, cpus: '0.25' }
+
+  spring-ai-multimodal:
+    deploy:
+      resources:
+        limits:   { memory: 768m, cpus: '1.0' }
+        reservations: { memory: 384m, cpus: '0.25' }
+
+  spring-ai-hierarchical:
+    deploy:
+      resources:
+        limits:   { memory: 768m, cpus: '1.0' }
+        reservations: { memory: 384m, cpus: '0.25' }
+
+  spring-ai-faq-retrieval:
+    deploy:
+      resources:
+        limits:   { memory: 1024m, cpus: '1.0' }
+        reservations: { memory: 512m, cpus: '0.25' }
+
+  faq-ingestion:
+    deploy:
+      resources:
+        limits:   { memory: 1024m, cpus: '1.0' }
+        reservations: { memory: 384m, cpus: '0.25' }
+
+  # ── LangChain Python services ────────────────────────────────────────────────
+
+  langchain-agentic:
+    deploy:
+      resources:
+        limits:   { memory: 768m, cpus: '0.75' }
+        reservations: { memory: 256m, cpus: '0.1' }
+
+  langchain-retrieval-service:
+    deploy:
+      resources:
+        limits:   { memory: 768m, cpus: '0.75' }
+        reservations: { memory: 256m, cpus: '0.1' }
+
+  langchain-neo4j-graph:
+    deploy:
+      resources:
+        limits:   { memory: 768m, cpus: '0.75' }
+        reservations: { memory: 256m, cpus: '0.1' }
+
+  langchain-corrective:
+    deploy:
+      resources:
+        limits:   { memory: 768m, cpus: '0.75' }
+        reservations: { memory: 256m, cpus: '0.1' }
+
+  langchain-multimodal:
+    deploy:
+      resources:
+        limits:   { memory: 768m, cpus: '0.75' }
+        reservations: { memory: 256m, cpus: '0.1' }
+
+  langchain-hierarchical:
+    deploy:
+      resources:
+        limits:   { memory: 768m, cpus: '0.75' }
+        reservations: { memory: 256m, cpus: '0.1' }
+
+  # ── LangGraph Python services ────────────────────────────────────────────────
+
+  langgraph-agentic:
+    deploy:
+      resources:
+        limits:   { memory: 768m, cpus: '0.75' }
+        reservations: { memory: 256m, cpus: '0.1' }
+
+  langgraph-retrieval-service:
+    deploy:
+      resources:
+        limits:   { memory: 768m, cpus: '0.75' }
+        reservations: { memory: 256m, cpus: '0.1' }
+
+  langgraph-neo4j-graph:
+    deploy:
+      resources:
+        limits:   { memory: 768m, cpus: '0.75' }
+        reservations: { memory: 256m, cpus: '0.1' }
+
+  langgraph-corrective:
+    deploy:
+      resources:
+        limits:   { memory: 768m, cpus: '0.75' }
+        reservations: { memory: 256m, cpus: '0.1' }
+
+  langgraph-multimodal:
+    deploy:
+      resources:
+        limits:   { memory: 768m, cpus: '0.75' }
+        reservations: { memory: 256m, cpus: '0.1' }
+
+  langgraph-hierarchical:
+    deploy:
+      resources:
+        limits:   { memory: 768m, cpus: '0.75' }
+        reservations: { memory: 256m, cpus: '0.1' }
+
+  # ── Analytics ────────────────────────────────────────────────────────────────
+
+  rag-analytics:
+    deploy:
+      resources:
+        limits:   { memory: 384m, cpus: '0.5' }
+        reservations: { memory: 128m, cpus: '0.1' }
+
+  # ── UI (nginx serves static files — nearly zero footprint) ──────────────────
+
+  faq-ui:
+    deploy:
+      resources:
+        limits:   { memory: 64m, cpus: '0.1' }
+        reservations: { memory: 16m, cpus: '0.05' }
