@@ -1,10 +1,6 @@
 package com.mytechstore.vision.service;
 
 import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
@@ -16,6 +12,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClient;
 
 @Service
 public class OpenAiVisionExtractor {
@@ -23,7 +20,7 @@ public class OpenAiVisionExtractor {
     public record ConsistencyResult(String label, Double score, List<String> reasons) {
     }
 
-    private final HttpClient httpClient;
+    private final WebClient webClient;
     private final ObjectMapper objectMapper;
     private final String apiKey;
     private final String model;
@@ -31,8 +28,9 @@ public class OpenAiVisionExtractor {
     public OpenAiVisionExtractor(
             ObjectMapper objectMapper,
             @Value("${spring.ai.openai.api-key:}") String apiKey,
-            @Value("${openai.vision.model:gpt-4o-mini}") String model) {
-        this.httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
+            @Value("${openai.vision.model:gpt-4o-mini}") String model,
+            WebClient webClient) {
+        this.webClient = webClient;
         this.objectMapper = objectMapper;
         this.apiKey = apiKey;
         this.model = model;
@@ -65,27 +63,22 @@ public class OpenAiVisionExtractor {
                                                             "url", "data:" + contentType + ";base64," + imageB64))))),
                     "temperature", 0);
 
-            String requestBody = objectMapper.writeValueAsString(payload);
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create("https://api.openai.com/v1/chat/completions"))
-                    .timeout(Duration.ofSeconds(30))
+            String responseBody = webClient.post()
+                    .uri("https://api.openai.com/v1/chat/completions")
                     .header("Authorization", "Bearer " + apiKey)
                     .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(requestBody))
-                    .build();
-
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() >= 400) {
+                    .bodyValue(payload)
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block(Duration.ofSeconds(30));
+            if (responseBody == null || responseBody.isBlank()) {
                 return "";
             }
 
-            JsonNode root = objectMapper.readTree(response.body());
+            JsonNode root = objectMapper.readTree(responseBody);
             JsonNode contentNode = root.path("choices").path(0).path("message").path("content");
             return contentNode.isMissingNode() ? "" : contentNode.asText("").trim();
-        } catch (InterruptedException ex) {
-            Thread.currentThread().interrupt();
-            return "";
-        } catch (IOException ex) {
+        } catch (Exception ex) {
             return "";
         }
     }
@@ -112,21 +105,19 @@ public class OpenAiVisionExtractor {
                     "messages", List.of(Map.of("role", "user", "content", textPrompt)),
                     "temperature", 0);
 
-            String requestBody = objectMapper.writeValueAsString(payload);
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create("https://api.openai.com/v1/chat/completions"))
-                    .timeout(Duration.ofSeconds(30))
+                String responseBody = webClient.post()
+                    .uri("https://api.openai.com/v1/chat/completions")
                     .header("Authorization", "Bearer " + apiKey)
                     .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(requestBody))
-                    .build();
-
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() >= 400) {
+                    .bodyValue(payload)
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block(Duration.ofSeconds(30));
+                if (responseBody == null || responseBody.isBlank()) {
                 return new ConsistencyResult(null, null, List.of());
             }
 
-            JsonNode root = objectMapper.readTree(response.body());
+                JsonNode root = objectMapper.readTree(responseBody);
             String rawContent = root.path("choices").path(0).path("message").path("content").asText("").trim();
             if (rawContent.isBlank()) {
                 return new ConsistencyResult(null, null, List.of());
@@ -162,10 +153,7 @@ public class OpenAiVisionExtractor {
                 }
             }
             return new ConsistencyResult(label, score, reasons);
-        } catch (InterruptedException ex) {
-            Thread.currentThread().interrupt();
-            return new ConsistencyResult(null, null, List.of());
-        } catch (IOException ex) {
+        } catch (Exception ex) {
             return new ConsistencyResult(null, null, List.of());
         }
     }

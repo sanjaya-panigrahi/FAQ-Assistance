@@ -13,10 +13,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.HashMap;
 import com.mytechstore.shared.registry.FAQPatternRegistry;
@@ -30,7 +26,10 @@ import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClient;
 
 @Service
 public class VisionPipelineService {
@@ -51,25 +50,25 @@ public class VisionPipelineService {
     private final String collectionPrefix;
     private final FAQPatternRegistry patternRegistry = new FAQPatternRegistry();
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private final HttpClient httpClient = HttpClient.newBuilder()
-            .version(HttpClient.Version.HTTP_1_1)
-            .connectTimeout(Duration.ofSeconds(10))
-            .build();
+    private final WebClient webClient;
 
     public VisionPipelineService(VectorStore vectorStore,
                                  ChatClient chatClient,
                                  @Value("${faq.source-file}") String sourceFile,
                                  EmbeddingModel embeddingModel,
                                  @Value("${chroma.url:http://chroma-faq:8000}") String chromaUrl,
-                                 @Value("${chroma.collection-prefix:faq_}") String collectionPrefix) {
+                                 @Value("${chroma.collection-prefix:faq_}") String collectionPrefix,
+                                 WebClient webClient) {
         this.vectorStore = vectorStore;
         this.chatClient = chatClient;
         this.sourceFile = sourceFile;
         this.embeddingModel = embeddingModel;
         this.chromaUrl = chromaUrl;
         this.collectionPrefix = collectionPrefix;
+        this.webClient = webClient;
     }
 
+    @CacheEvict(value = "multimodalAnswers", allEntries = true)
     public synchronized String rebuildIndex() {
         List<Document> docs = parseFaqDocuments();
         vectorStore.add(docs);
@@ -78,6 +77,7 @@ public class VisionPipelineService {
         return "Indexed " + docs.size() + " FAQ entries for multimodal retrieval";
     }
 
+    @Cacheable(value = "multimodalAnswers", key = "(#customerId == null ? 'default' : #customerId) + ':' + #question + ':' + (#imageDescription == null ? '' : #imageDescription)")
     public VisionRagResponse ask(String question, String imageDescription, String customerId) {
         List<String> chromaChunks = queryChroma(customerId, question, 4);
         String context;
@@ -139,14 +139,15 @@ public class VisionPipelineService {
         if (customerId == null || customerId.isBlank()) return List.of();
         try {
             String collectionName = collectionPrefix + customerId.trim();
-            HttpRequest getReq = HttpRequest.newBuilder()
-                    .uri(URI.create(chromaUrl + "/api/v1/collections/" + collectionName))
-                    .timeout(Duration.ofSeconds(5)).GET().build();
-            HttpResponse<String> getResp = httpClient.send(getReq, HttpResponse.BodyHandlers.ofString());
-            if (getResp.statusCode() != 200) return List.of();
+            String collectionResponse = webClient.get()
+                .uri(chromaUrl + "/api/v1/collections/" + collectionName)
+                .retrieve()
+                .bodyToMono(String.class)
+                .block(Duration.ofSeconds(5));
+            if (collectionResponse == null) return List.of();
 
             @SuppressWarnings("unchecked")
-            Map<String, Object> coll = objectMapper.readValue(getResp.body(), Map.class);
+            Map<String, Object> coll = objectMapper.readValue(collectionResponse, Map.class);
             String collectionId = String.valueOf(coll.get("id"));
 
             float[] embArr = embeddingModel.embed(question);
@@ -158,17 +159,17 @@ public class VisionPipelineService {
             queryPayload.put("n_results", topK);
             queryPayload.put("include", List.of("documents"));
 
-            HttpRequest queryReq = HttpRequest.newBuilder()
-                    .uri(URI.create(chromaUrl + "/api/v1/collections/" + collectionId + "/query"))
-                    .timeout(Duration.ofSeconds(30))
+                String queryResponse = webClient.post()
+                    .uri(chromaUrl + "/api/v1/collections/" + collectionId + "/query")
                     .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(queryPayload)))
-                    .build();
-            HttpResponse<String> queryResp = httpClient.send(queryReq, HttpResponse.BodyHandlers.ofString());
-            if (queryResp.statusCode() != 200) return List.of();
+                    .bodyValue(queryPayload)
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block(Duration.ofSeconds(30));
+                if (queryResponse == null) return List.of();
 
             @SuppressWarnings("unchecked")
-            Map<String, Object> result = objectMapper.readValue(queryResp.body(), Map.class);
+                Map<String, Object> result = objectMapper.readValue(queryResponse, Map.class);
             Object docsObj = result.get("documents");
             if (docsObj instanceof List<?> outer && !((List<?>) outer).isEmpty()
                     && outer.get(0) instanceof List<?> inner) {

@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.concurrency import run_in_threadpool
 
 from .pipeline import pipeline
 from .security import TokenPayload, get_current_user, get_current_user_optional
@@ -9,23 +10,23 @@ router = APIRouter()
 
 
 @router.get("/actuator/health")
-def health() -> dict:
-    return pipeline.health()
+async def health() -> dict:
+    return await run_in_threadpool(pipeline.health)
 
 
 @router.post("/api/index/rebuild")
-def rebuild(current_user: TokenPayload = Depends(get_current_user)) -> dict:
+async def rebuild(current_user: TokenPayload = Depends(get_current_user)) -> dict:
     if current_user.role != "ADMIN":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
     try:
-        count = pipeline.rebuild_index()
+        count = await run_in_threadpool(pipeline.rebuild_index)
         return {"status": "ok", "documents": count, "note": "Index managed by faq-ingestion service"}
     except Exception as exc:  # pragma: no cover
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.post("/api/retrieval/query", response_model=RetrievalQueryResponse)
-def retrieval_query(
+async def retrieval_query(
     request: RetrievalQueryRequest,
     current_user: TokenPayload | None = Depends(get_current_user_optional),
 ) -> RetrievalQueryResponse:
@@ -43,6 +44,6 @@ def retrieval_query(
     request = request.model_copy(update={"tenantId": tenant_id})
 
     try:
-        return pipeline.query(request)
+        return await run_in_threadpool(pipeline.query, request)
     except Exception as exc:  # pragma: no cover
         raise HTTPException(status_code=500, detail=str(exc)) from exc

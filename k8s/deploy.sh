@@ -29,6 +29,16 @@ fi
 CONTEXT=$(kubectl config current-context)
 echo "✅ kubectl available (context: $CONTEXT)"
 
+if ! kubectl get --raw='/readyz' --request-timeout='5s' >/dev/null 2>&1; then
+    echo "❌ Kubernetes API server is not reachable for context: $CONTEXT"
+    echo "   Current endpoint: $(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}' 2>/dev/null || echo unknown)"
+    if [ "$CONTEXT" = "minikube" ] && command -v minikube &> /dev/null; then
+        echo "   Try: minikube start"
+    fi
+    echo "   Then rerun: bash k8s/deploy.sh --deploy --group <group>"
+    exit 1
+fi
+
 read_env_value() {
     local key="$1"
     local env_file="$2"
@@ -148,10 +158,10 @@ deploy_group_resources() {
     local group="$1"
 
     echo "Applying shared namespace/config/storage/service resources..."
-    kubectl apply -f "$SCRIPT_DIR/base/namespaces/namespace.yaml"
+    kubectl apply -f "$SCRIPT_DIR/base/namespaces/faq-assistance-ns.yaml"
     kubectl apply -f "$SCRIPT_DIR/base/configmaps/app-config.yaml"
     kubectl apply -f "$SCRIPT_DIR/base/configmaps/kong-config.yaml"
-    kubectl apply -f "$SCRIPT_DIR/base/storage/persistent-volume-claims.yaml"
+    kubectl apply -f "$SCRIPT_DIR/base/storage/pvc.yaml"
     kubectl apply -f "$SCRIPT_DIR/base/services/all-services.yaml"
 
     echo "Applying infrastructure dependencies..."
@@ -313,21 +323,32 @@ if [ "$BUILD_IMAGES" = true ]; then
     echo "✅ Docker images built"
     docker images | grep faq-assistance
 
-    # Import all built images into the Docker Desktop Kubernetes node (kind-based VM).
+    # Import all built images into the active Kubernetes runtime.
     # Without this step Kubernetes tries to pull from Docker Hub and fails for local images.
-    K8S_NODE="desktop-control-plane"
-    if docker inspect "$K8S_NODE" &>/dev/null 2>&1; then
+    if [ "$CONTEXT" = "minikube" ] && command -v minikube &> /dev/null; then
         echo ""
-        echo "Importing images into Kubernetes node ($K8S_NODE)..."
+        echo "Loading images into minikube runtime..."
         for img in "${BUILT_IMAGES[@]}"; do
             echo "  → $img"
-            docker save "$img" | docker exec -i "$K8S_NODE" ctr -n k8s.io images import - >/dev/null
+            minikube image load "$img"
         done
-        echo "✅ All images imported into Kubernetes runtime"
+        echo "✅ All images loaded into minikube"
     else
-        echo "⚠️  Kubernetes node container '$K8S_NODE' not found."
-        echo "   If using Docker Desktop, make sure Kubernetes is enabled."
-        echo "   If using minikube, run: minikube image load <image-name>"
+        K8S_NODE="desktop-control-plane"
+        if docker inspect "$K8S_NODE" &>/dev/null 2>&1; then
+            echo ""
+            echo "Importing images into Kubernetes node ($K8S_NODE)..."
+            for img in "${BUILT_IMAGES[@]}"; do
+                echo "  → $img"
+                docker save "$img" | docker exec -i "$K8S_NODE" ctr -n k8s.io images import - >/dev/null
+            done
+            echo "✅ All images imported into Kubernetes runtime"
+        else
+            echo "⚠️  Could not detect a supported local Kubernetes image runtime."
+            echo "   Current context: $CONTEXT"
+            echo "   If using Docker Desktop, make sure Kubernetes is enabled."
+            echo "   If using minikube, make sure the context is set to minikube."
+        fi
     fi
 fi
 

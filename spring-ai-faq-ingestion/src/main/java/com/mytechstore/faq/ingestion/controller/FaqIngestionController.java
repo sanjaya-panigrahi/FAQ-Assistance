@@ -149,6 +149,27 @@ public class FaqIngestionController {
     }
 
     /**
+     * Upload and index FAQ document with automatic customer detection.
+     * POST /api/faq-ingestion/documents/upload/auto-customer
+     * Form Parameters:
+     * - file: Document file (multipart)
+     */
+    @PostMapping(value = "/documents/upload/auto-customer", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<AutoCustomerUploadResponse> uploadDocumentAutoCustomer(
+        @RequestParam MultipartFile file
+    ) {
+        log.info("API: Uploading document with auto customer detection (file: {})", file.getOriginalFilename());
+
+        try {
+            AutoCustomerUploadResponse response = ragService.indexDocumentAutoCustomer(file);
+            return ResponseEntity.status(HttpStatus.CREATED).body(response);
+        } catch (IOException e) {
+            log.error("Error uploading document with auto customer detection", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /**
      * Get documents for a customer
      * GET /api/faq-ingestion/customers/{customerId}/documents
      */
@@ -199,6 +220,7 @@ public class FaqIngestionController {
         log.debug("API: Health check");
 
         boolean chromadbHealthy = chromadbService.isHealthy();
+        int collectionCount = chromadbHealthy ? chromadbService.getTotalCollectionCount() : -1;
 
         ServiceHealthResponse response = ServiceHealthResponse.builder()
             .status(chromadbHealthy ? "UP" : "DEGRADED")
@@ -206,7 +228,7 @@ public class FaqIngestionController {
             .chromadb(ChromaDBStatusResponse.builder()
                 .connected(chromadbHealthy)
                 .persistDirectory(chromaPersistDir)
-                .collectionCount(0)  // Would need to query
+                .collectionCount(collectionCount >= 0 ? collectionCount : null)
                 .build())
             .openai(OpenAIStatusResponse.builder()
                 .configured(true)

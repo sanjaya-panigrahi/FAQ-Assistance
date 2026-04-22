@@ -1,7 +1,9 @@
 import re
 import time
+import json
 
 import chromadb
+import redis
 
 from langchain_chroma import Chroma
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
@@ -11,6 +13,13 @@ from .schemas import RetrievedChunk, RetrievalQueryRequest, RetrievalQueryRespon
 
 
 class RetrievalPipeline:
+    def __init__(self) -> None:
+        self._redis = redis.Redis(
+            host=settings.redis_host,
+            port=settings.redis_port,
+            decode_responses=True,
+        )
+
     def health(self) -> dict:
         try:
             client = chromadb.HttpClient(host=settings.chroma_host, port=settings.chroma_port)
@@ -23,6 +32,15 @@ class RetrievalPipeline:
         return 0  # Index managed by faq-ingestion service.
 
     def query(self, request: RetrievalQueryRequest) -> RetrievalQueryResponse:
+        cache_key = f"retrieval:{request.tenantId}:{request.question}:{request.topK}:{request.similarityThreshold}:{request.queryContext}"
+        try:
+            cached = self._redis.get(cache_key)
+            if cached:
+                payload = json.loads(cached)
+                return RetrievalQueryResponse.model_validate(payload)
+        except Exception:
+            pass
+
         retrieval_start = time.perf_counter()
         transformed_query = self._transform_query(request.question, request.queryContext)
         ranked_chunks = self._retrieve_and_rerank(
@@ -48,7 +66,7 @@ class RetrievalPipeline:
             for index, item in enumerate(ranked_chunks)
         ]
 
-        return RetrievalQueryResponse(
+        response = RetrievalQueryResponse(
             tenantId=request.tenantId,
             question=request.question,
             transformedQuery=transformed_query,
@@ -60,6 +78,17 @@ class RetrievalPipeline:
             generationLatencyMs=generation_latency_ms,
             chunks=response_chunks,
         )
+
+        try:
+            self._redis.setex(
+                cache_key,
+                settings.redis_ttl_seconds,
+                response.model_dump_json(),
+            )
+        except Exception:
+            pass
+
+        return response
 
     def _transform_query(self, question: str, query_context: str | None) -> str:
         query = question.strip()

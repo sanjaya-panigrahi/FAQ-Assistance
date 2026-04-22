@@ -1,8 +1,31 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
+const apiMode = import.meta.env.VITE_API_MODE || "kong";
 const kongGatewayUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:9080";
-const ingestionApiUrl = `${kongGatewayUrl}/spring/ingestion/api/faq-ingestion`;
-const analyticsApiUrl = `${kongGatewayUrl}/spring/analytics/api/analytics`;
+const isDirectApiMode = apiMode === "direct";
+const graphWarmupTimeoutMs = Number(import.meta.env.VITE_GRAPH_WARMUP_TIMEOUT_MS || 120000);
+
+function resolveApiUrl(envKey, directDefaultPath, kongPath) {
+  const envValue = import.meta.env[envKey];
+  if (envValue) {
+    return envValue;
+  }
+  if (isDirectApiMode) {
+    return directDefaultPath;
+  }
+  return `${kongGatewayUrl}${kongPath}`;
+}
+
+const ingestionApiUrl = resolveApiUrl(
+  "VITE_INGESTION_API_URL",
+  "http://localhost:9000/api/faq-ingestion",
+  "/spring/ingestion/api/faq-ingestion"
+);
+const analyticsApiUrl = resolveApiUrl(
+  "VITE_ANALYTICS_API_URL",
+  "http://localhost:9191/api/analytics",
+  "/spring/analytics/api/analytics"
+);
 const analyticsPresetsStorageKey = "faq-assistance.analytics.filter-presets";
 const documentPresetsStorageKey = "faq-assistance.documents.filter-presets";
 const fallbackCustomers = [
@@ -13,36 +36,37 @@ const services = [
   { id: "agentic",    label: "Agentic RAG" },
   { id: "retrieval",  label: "RAG Retrieval" },
   { id: "graph",      label: "Graph RAG" },
-  { id: "corrective", label: "Corrective RAG" },
-  { id: "multimodal", label: "Multimodal RAG" },
-  { id: "hierarchical", label: "Hierarchical RAG" },
+  // { id: "corrective", label: "Corrective RAG" },
+  // { id: "multimodal", label: "Multimodal RAG" },
+  // { id: "hierarchical", label: "Hierarchical RAG" },
 ];
+const enabledServiceIds = new Set(["agentic", "retrieval", "graph"]);
 
 // Base URLs keyed by [framework][serviceId]
 const serviceUrls = {
   "spring-ai": {
-    agentic:      `${kongGatewayUrl}/spring/agentic/api`,
-    retrieval:    `${kongGatewayUrl}/spring/retrieval/api`,
-    graph:        `${kongGatewayUrl}/spring/graph/api`,
-    corrective:   `${kongGatewayUrl}/spring/corrective/api`,
-    multimodal:   `${kongGatewayUrl}/spring/multimodal/api`,
-    hierarchical: `${kongGatewayUrl}/spring/hierarchical/api`,
+    agentic: resolveApiUrl("VITE_SPRING_AGENTIC_API_URL", "http://localhost:8081/api", "/spring/agentic/api"),
+    retrieval: resolveApiUrl("VITE_SPRING_RETRIEVAL_API_URL", "http://localhost:9010/api", "/spring/retrieval/api"),
+    graph: resolveApiUrl("VITE_SPRING_GRAPH_API_URL", "http://localhost:8082/api", "/spring/graph/api"),
+    corrective: resolveApiUrl("VITE_SPRING_CORRECTIVE_API_URL", "http://localhost:8083/api", "/spring/corrective/api"),
+    multimodal: resolveApiUrl("VITE_SPRING_MULTIMODAL_API_URL", "http://localhost:8084/api", "/spring/multimodal/api"),
+    hierarchical: resolveApiUrl("VITE_SPRING_HIERARCHICAL_API_URL", "http://localhost:8085/api", "/spring/hierarchical/api"),
   },
   langchain: {
-    agentic:      `${kongGatewayUrl}/langchain/agentic/api`,
-    retrieval:    `${kongGatewayUrl}/langchain/retrieval/api`,
-    graph:        `${kongGatewayUrl}/langchain/graph/api`,
-    corrective:   `${kongGatewayUrl}/langchain/corrective/api`,
-    multimodal:   `${kongGatewayUrl}/langchain/multimodal/api`,
-    hierarchical: `${kongGatewayUrl}/langchain/hierarchical/api`,
+    agentic: resolveApiUrl("VITE_LANGCHAIN_AGENTIC_API_URL", "http://localhost:8181/api", "/langchain/agentic/api"),
+    retrieval: resolveApiUrl("VITE_LANGCHAIN_RETRIEVAL_API_URL", "http://localhost:8186/api", "/langchain/retrieval/api"),
+    graph: resolveApiUrl("VITE_LANGCHAIN_GRAPH_API_URL", "http://localhost:8182/api", "/langchain/graph/api"),
+    corrective: resolveApiUrl("VITE_LANGCHAIN_CORRECTIVE_API_URL", "http://localhost:8183/api", "/langchain/corrective/api"),
+    multimodal: resolveApiUrl("VITE_LANGCHAIN_MULTIMODAL_API_URL", "http://localhost:8184/api", "/langchain/multimodal/api"),
+    hierarchical: resolveApiUrl("VITE_LANGCHAIN_HIERARCHICAL_API_URL", "http://localhost:8185/api", "/langchain/hierarchical/api"),
   },
   langgraph: {
-    agentic:      `${kongGatewayUrl}/langgraph/agentic/api`,
-    retrieval:    `${kongGatewayUrl}/langgraph/retrieval/api`,
-    graph:        `${kongGatewayUrl}/langgraph/graph/api`,
-    corrective:   `${kongGatewayUrl}/langgraph/corrective/api`,
-    multimodal:   `${kongGatewayUrl}/langgraph/multimodal/api`,
-    hierarchical: `${kongGatewayUrl}/langgraph/hierarchical/api`,
+    agentic: resolveApiUrl("VITE_LANGGRAPH_AGENTIC_API_URL", "http://localhost:8281/api", "/langgraph/agentic/api"),
+    retrieval: resolveApiUrl("VITE_LANGGRAPH_RETRIEVAL_API_URL", "http://localhost:8286/api", "/langgraph/retrieval/api"),
+    graph: resolveApiUrl("VITE_LANGGRAPH_GRAPH_API_URL", "http://localhost:8282/api", "/langgraph/graph/api"),
+    corrective: resolveApiUrl("VITE_LANGGRAPH_CORRECTIVE_API_URL", "http://localhost:8283/api", "/langgraph/corrective/api"),
+    multimodal: resolveApiUrl("VITE_LANGGRAPH_MULTIMODAL_API_URL", "http://localhost:8284/api", "/langgraph/multimodal/api"),
+    hierarchical: resolveApiUrl("VITE_LANGGRAPH_HIERARCHICAL_API_URL", "http://localhost:8285/api", "/langgraph/hierarchical/api"),
   },
 };
 
@@ -70,6 +94,12 @@ function App() {
   const [uploadingFaq, setUploadingFaq] = useState(false);
   const [customerBusy, setCustomerBusy] = useState(false);
   const [error, setError] = useState("");
+  const [graphWarmupStatus, setGraphWarmupStatus] = useState("");
+  const [graphTasks, setGraphTasks] = useState([]);
+  const [graphTasksLoading, setGraphTasksLoading] = useState(false);
+  const [graphTasksError, setGraphTasksError] = useState("");
+  const [graphTaskFilter, setGraphTaskFilter] = useState("active");
+  const [expandedGraphTaskIds, setExpandedGraphTaskIds] = useState(() => new Set());
   const [uploadedFaqName, setUploadedFaqName] = useState("");
   const [selectedFaqFile, setSelectedFaqFile] = useState(null);
   const [documentManagerOpen, setDocumentManagerOpen] = useState(false);
@@ -106,11 +136,17 @@ function App() {
   const documentPresetImportInputRef = useRef(null);
   const graphRebuildCacheRef = useRef(new Set());
   const graphCustomerDataCacheRef = useRef(new Set());
+  const graphWarmupPendingCountRef = useRef(0);
 
   const selectedService = useMemo(
     () => services.find((service) => service.id === selectedServiceId) ?? services[0],
     [selectedServiceId]
   );
+  useEffect(() => {
+    if (!enabledServiceIds.has(selectedServiceId)) {
+      setSelectedServiceId("agentic");
+    }
+  }, [selectedServiceId]);
 
   const activeServices = useMemo(() => {
     return [selectedService];
@@ -183,6 +219,38 @@ function App() {
     analyticsPatternFilter,
     normalizedAnalyticsSearchTerm,
   ]);
+
+  const visibleGraphTasks = useMemo(() => {
+    const isActiveStatus = (statusValue) => {
+      const status = String(statusValue || "").toUpperCase();
+      return status === "PENDING" || status === "RUNNING" || status === "STARTED" || status === "RETRY";
+    };
+
+    return graphTasks.filter((task) => {
+      if (graphTaskFilter === "all") {
+        return true;
+      }
+      return isActiveStatus(task.status);
+    });
+  }, [graphTasks, graphTaskFilter]);
+
+  useEffect(() => {
+    setExpandedGraphTaskIds((currentValue) => {
+      const validTaskIds = new Set(
+        graphTasks
+          .map((task) => String(task?.taskId || "").trim())
+          .filter((taskId) => taskId.length > 0)
+      );
+
+      const nextValue = new Set();
+      currentValue.forEach((taskId) => {
+        if (validTaskIds.has(taskId)) {
+          nextValue.add(taskId);
+        }
+      });
+      return nextValue;
+    });
+  }, [graphTasks]);
 
   const filteredDashboardSummary = useMemo(() => {
     const aggregateByFramework = new Map();
@@ -269,9 +337,9 @@ function App() {
       { id: "agentic-rag", label: "Agentic RAG", framework: "all", pattern: "Agentic RAG" },
       { id: "rag-retrieval", label: "RAG Retrieval", framework: "all", pattern: "RAG Retrieval" },
       { id: "graph-rag", label: "Graph RAG", framework: "all", pattern: "Graph RAG" },
-      { id: "corrective-rag", label: "Corrective RAG", framework: "all", pattern: "Corrective RAG" },
-      { id: "multimodal-rag", label: "Multimodal RAG", framework: "all", pattern: "Multimodal RAG" },
-      { id: "hierarchical-rag", label: "Hierarchical RAG", framework: "all", pattern: "Hierarchical RAG" },
+      // { id: "corrective-rag", label: "Corrective RAG", framework: "all", pattern: "Corrective RAG" },
+      // { id: "multimodal-rag", label: "Multimodal RAG", framework: "all", pattern: "Multimodal RAG" },
+      // { id: "hierarchical-rag", label: "Hierarchical RAG", framework: "all", pattern: "Hierarchical RAG" },
     ],
     []
   );
@@ -354,7 +422,7 @@ function App() {
   const canAsk = searchEnabled && !loading && !uploadingFaq && hasQuestion;
   const canExport = !loading && hasTranscript;
   const canStartNewConversation = !loading && (hasTranscript || Boolean(error) || Boolean(uploadedFaqName));
-  const canUploadFaq = !loading && !uploadingFaq && trimmedCustomerId.length > 0 && Boolean(selectedFaqFile);
+  const canUploadFaq = !loading && !uploadingFaq && Boolean(selectedFaqFile);
   const canCreateCustomer = !customerBusy && trimmedNewCustomerId.length > 0 && trimmedNewCustomerName.length > 0;
   const primaryActionLabel = loading
     ? mode === "compare"
@@ -460,6 +528,146 @@ function App() {
     return text ? { message: text } : {};
   }
 
+  async function loadGraphTasks(limit = 10, { silent = false } = {}) {
+    if (!silent) {
+      setGraphTasksLoading(true);
+    }
+
+    try {
+      const graphBaseUrl = resolveUrl(framework, "graph");
+      const response = await fetch(`${graphBaseUrl}/tasks?limit=${encodeURIComponent(limit)}`);
+      const data = await parseResponse(response);
+
+      if (!response.ok) {
+        throw new Error(data?.detail || data?.message || `Unable to load graph tasks (${response.status}).`);
+      }
+
+      setGraphTasks(Array.isArray(data) ? data : []);
+      setGraphTasksError("");
+    } catch (requestError) {
+      setGraphTasksError(requestError.message || "Unable to load graph tasks.");
+      if (!silent) {
+        setGraphTasks([]);
+      }
+    } finally {
+      if (!silent) {
+        setGraphTasksLoading(false);
+      }
+    }
+  }
+
+  function beginGraphWarmup(message) {
+    graphWarmupPendingCountRef.current += 1;
+    setGraphWarmupStatus(message);
+  }
+
+  function updateGraphWarmup(message) {
+    setGraphWarmupStatus(message);
+  }
+
+  function endGraphWarmup() {
+    graphWarmupPendingCountRef.current = Math.max(0, graphWarmupPendingCountRef.current - 1);
+    if (graphWarmupPendingCountRef.current === 0) {
+      setGraphWarmupStatus("");
+    }
+  }
+
+  function isGraphTaskComplete(status) {
+    return status === "COMPLETE" || status === "SUCCESS";
+  }
+
+  function isGraphTaskFailed(status) {
+    return status === "FAILED" || status === "FAILURE";
+  }
+
+  function formatTaskTime(isoValue) {
+    if (!isoValue) {
+      return "-";
+    }
+    const parsed = new Date(isoValue);
+    if (Number.isNaN(parsed.getTime())) {
+      return "-";
+    }
+    return parsed.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  }
+
+  function formatTaskDateTime(isoValue) {
+    if (!isoValue) {
+      return "-";
+    }
+    const parsed = new Date(isoValue);
+    if (Number.isNaN(parsed.getTime())) {
+      return "-";
+    }
+    return parsed.toLocaleString();
+  }
+
+  function formatTaskPayload(task) {
+    const normalizedTask = {
+      taskId: task?.taskId || null,
+      taskType: task?.taskType || null,
+      status: task?.status || null,
+      createdAt: task?.createdAt || null,
+      startedAt: task?.startedAt || null,
+      completedAt: task?.completedAt || null,
+      updatedAt: task?.updatedAt || null,
+      error: task?.error || null,
+      result: task?.result ?? null,
+    };
+
+    try {
+      return JSON.stringify(normalizedTask, null, 2);
+    } catch {
+      return "{\n  \"error\": \"Unable to render task payload\"\n}";
+    }
+  }
+
+  function toggleTaskDetails(taskId) {
+    const normalizedTaskId = String(taskId || "").trim();
+    if (!normalizedTaskId) {
+      return;
+    }
+
+    setExpandedGraphTaskIds((currentValue) => {
+      const nextValue = new Set(currentValue);
+      if (nextValue.has(normalizedTaskId)) {
+        nextValue.delete(normalizedTaskId);
+      } else {
+        nextValue.add(normalizedTaskId);
+      }
+      return nextValue;
+    });
+  }
+
+  async function waitForGraphTask(graphBaseUrl, taskId, frameworkValue, customerId) {
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < graphWarmupTimeoutMs) {
+      const response = await fetch(`${graphBaseUrl}/tasks/${encodeURIComponent(taskId)}`);
+      const data = await parseResponse(response);
+      if (!response.ok) {
+        throw new Error(
+          data?.detail || data?.message || `Graph task polling failed for ${frameworkValue} (status ${response.status}).`
+        );
+      }
+
+      const status = String(data?.status || "").toUpperCase();
+      updateGraphWarmup(`Preparing Graph RAG index for ${customerId} on ${frameworkValue} (${status || "PENDING"})...`);
+
+      if (isGraphTaskComplete(status)) {
+        return data;
+      }
+
+      if (isGraphTaskFailed(status)) {
+        throw new Error(data?.error || data?.detail || `Graph rebuild failed for ${frameworkValue}.`);
+      }
+
+      await new Promise((resolve) => window.setTimeout(resolve, 1500));
+    }
+
+    throw new Error(`Graph rebuild timed out for ${frameworkValue}.`);
+  }
+
   async function ensureGraphCustomerHasData(customerId) {
     const normalizedCustomerId = customerId.trim();
     if (!normalizedCustomerId) {
@@ -504,16 +712,54 @@ function App() {
     }
 
     const graphBaseUrl = resolveUrl(frameworkValue, "graph");
-    const response = await fetch(`${graphBaseUrl}/index/rebuild`, { method: "POST" });
-    const data = await parseResponse(response);
+    const abortController = new AbortController();
+    const timeoutId = window.setTimeout(() => abortController.abort(), graphWarmupTimeoutMs);
+    beginGraphWarmup(`Preparing Graph RAG index for ${normalizedCustomerId} on ${frameworkValue}...`);
 
-    if (!response.ok) {
-      throw new Error(
-        data.detail || data.message || `Graph index rebuild failed for ${frameworkValue} (status ${response.status}).`
+    try {
+      const response = await fetch(`${graphBaseUrl}/index/rebuild`, {
+        method: "POST",
+        signal: abortController.signal,
+      });
+      const data = await parseResponse(response);
+
+      if (response.ok && data?.taskId) {
+        await loadGraphTasks(10, { silent: true });
+        await waitForGraphTask(graphBaseUrl, data.taskId, frameworkValue, normalizedCustomerId);
+        await loadGraphTasks(10, { silent: true });
+        graphRebuildCacheRef.current.add(cacheKey);
+        return;
+      }
+
+      if (response.ok) {
+        graphRebuildCacheRef.current.add(cacheKey);
+        return;
+      }
+
+      const message = String(
+        data?.detail || data?.message || `Graph index rebuild failed for ${frameworkValue} (status ${response.status}).`
       );
-    }
 
-    graphRebuildCacheRef.current.add(cacheKey);
+      // Some graph services can return equivalent-index errors even when index is usable.
+      if (
+        message.toLowerCase().includes("equivalentschemarulealreadyexists") ||
+        message.toLowerCase().includes("equivalent index already exists")
+      ) {
+        graphRebuildCacheRef.current.add(cacheKey);
+        return;
+      }
+
+      console.warn(`Skipping graph warmup for ${frameworkValue}: ${message}`);
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        console.warn(`Graph warmup timed out for ${frameworkValue}. Proceeding with direct query path.`);
+      } else {
+        console.warn(`Graph warmup skipped for ${frameworkValue}:`, error);
+      }
+    } finally {
+      window.clearTimeout(timeoutId);
+      endGraphWarmup();
+    }
   }
 
   async function loadCustomers(preferredCustomerId) {
@@ -637,6 +883,29 @@ function App() {
 
   function extractMetaValue(meta, label) {
     return meta.find((entry) => entry.label === label)?.value;
+  }
+
+  function classifyResponseSource(strategyValue) {
+    const strategy = String(strategyValue || "").toLowerCase();
+
+    if (!strategy) {
+      return "Unknown";
+    }
+
+    if (strategy.includes("pattern-registry+structured-extraction") || strategy.includes("deterministic-extraction")) {
+      return "Deterministic";
+    }
+
+    if (
+      strategy.includes("langchain-agent") ||
+      strategy.includes("langgraph-routing") ||
+      strategy.includes("agent-plan") ||
+      strategy.includes("semantic-intent")
+    ) {
+      return "LLM";
+    }
+
+    return "Mixed";
   }
 
   function clamp01(value) {
@@ -1359,20 +1628,19 @@ function App() {
   }
 
   async function handleFaqUpload() {
-    if (!selectedFaqFile || !trimmedCustomerId || uploadingFaq) {
+    if (!selectedFaqFile || uploadingFaq) {
       return;
     }
 
     setUploadingFaq(true);
     setError("");
-    setFaqUploadStatus(`Uploading ${selectedFaqFile.name} for ${trimmedCustomerId}...`);
+    setFaqUploadStatus(`Uploading ${selectedFaqFile.name} and auto-detecting customer...`);
 
     try {
       const formData = new FormData();
-      formData.append("customerId", trimmedCustomerId);
       formData.append("file", selectedFaqFile);
 
-      const response = await fetch(`${ingestionApiUrl}/documents/upload`, {
+      const response = await fetch(`${ingestionApiUrl}/documents/upload/auto-customer`, {
         method: "POST",
         body: formData,
       });
@@ -1382,13 +1650,28 @@ function App() {
         throw new Error(data.message || data.processingError || `Upload failed with status ${response.status}`);
       }
 
-      setFaqUploadResult(data);
-      setFaqUploadStatus(`Indexed ${data.originalFileName || selectedFaqFile.name} for ${trimmedCustomerId}.`);
-      setUploadedFaqName(data.originalFileName || selectedFaqFile.name);
-      graphCustomerDataCacheRef.current.delete(trimmedCustomerId);
+      const detectedCustomerId = data.customerId || data.customer?.customerId || "";
+      const detectedCustomerName = data.customerName || data.customer?.name || detectedCustomerId;
+      const documentPayload = data.document || data;
+
+      setFaqUploadResult(documentPayload);
+      setFaqUploadStatus(
+        `Indexed ${documentPayload.originalFileName || selectedFaqFile.name} for ${detectedCustomerName} (${detectedCustomerId || "unknown"}).`
+      );
+      setUploadedFaqName(documentPayload.originalFileName || selectedFaqFile.name);
+
+      if (detectedCustomerId) {
+        setCustomer(detectedCustomerId);
+      }
+
+      graphCustomerDataCacheRef.current.delete(detectedCustomerId || trimmedCustomerId);
       frameworkOptions.forEach((option) => {
+        if (detectedCustomerId) {
+          graphRebuildCacheRef.current.delete(`${option.value}::${detectedCustomerId}`);
+        }
         graphRebuildCacheRef.current.delete(`${option.value}::${trimmedCustomerId}`);
       });
+      await loadCustomers(detectedCustomerId || customer);
       await loadCustomerDocuments();
       setSelectedFaqFile(null);
       if (fileInputRef.current) {
@@ -1581,6 +1864,28 @@ function App() {
   }
 
   useEffect(() => {
+    if (selectedServiceId !== "graph") {
+      return;
+    }
+
+    loadGraphTasks(10);
+  }, [selectedServiceId, framework]);
+
+  useEffect(() => {
+    if (!graphWarmupStatus) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      loadGraphTasks(10, { silent: true });
+    }, 2000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [graphWarmupStatus, framework]);
+
+  useEffect(() => {
     try {
       const rawValue = window.localStorage.getItem(documentPresetsStorageKey);
       if (!rawValue) {
@@ -1689,8 +1994,12 @@ function App() {
                 onChange={(event) => setSelectedServiceId(event.target.value)}
               >
                 {services.map((service) => (
-                  <option key={service.id} value={service.id}>
-                    {service.label}
+                  <option
+                    key={service.id}
+                    value={service.id}
+                    disabled={!enabledServiceIds.has(service.id)}
+                  >
+                    {service.label}{enabledServiceIds.has(service.id) ? "" : " (Coming soon)"}
                   </option>
                 ))}
               </select>
@@ -1755,9 +2064,6 @@ function App() {
             <button type="button" className="accent-solid" onClick={exportTranscript} disabled={!canExport}>
               Export Transcript
             </button>
-            <button type="button" className="accent-soft" onClick={() => setDocumentManagerOpen((currentValue) => !currentValue)}>
-              {documentManagerOpen ? "Hide document tools" : "Manage FAQ documents"}
-            </button>
             <button type="button" className="accent-soft" onClick={() => setAnalyticsVisible((currentValue) => !currentValue)}>
               {analyticsVisible ? "Hide analytics" : "Show analytics"}
             </button>
@@ -1778,296 +2084,94 @@ function App() {
           {mode !== "compare" && (
             <p className="supporting-note">
               Framework is set to <strong>{frameworkOptions.find((f) => f.value === framework)?.label}</strong>. 
-              API requests are routed through Kong gateway on port 9080 ({framework === "spring-ai" ? "/spring/*" : framework === "langchain" ? "/langchain/*" : "/langgraph/*"}).
+              {isDirectApiMode
+                ? "API requests are sent directly to backend service ports (bypassing Kong)."
+                : `API requests are routed through Kong gateway (${framework === "spring-ai" ? "/spring/*" : framework === "langchain" ? "/langchain/*" : "/langgraph/*"}).`}
             </p>
+          )}
+          {graphWarmupStatus && <p className="graph-status-banner">{graphWarmupStatus}</p>}
+          {selectedServiceId === "graph" && (
+            <div className="task-monitor-panel" role="region" aria-label="Graph rebuild task monitor">
+              <div className="task-monitor-header">
+                <p className="meta-title">Recent Graph Tasks ({frameworkOptions.find((f) => f.value === framework)?.label})</p>
+                <div className="task-monitor-controls">
+                  <div className="task-filter-toggle" role="group" aria-label="Task visibility filter">
+                    <button
+                      type="button"
+                      className={`task-filter-btn ${graphTaskFilter === "active" ? "active" : ""}`}
+                      onClick={() => setGraphTaskFilter("active")}
+                    >
+                      Active
+                    </button>
+                    <button
+                      type="button"
+                      className={`task-filter-btn ${graphTaskFilter === "all" ? "active" : ""}`}
+                      onClick={() => setGraphTaskFilter("all")}
+                    >
+                      All
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    className="accent-soft"
+                    onClick={() => loadGraphTasks(10)}
+                    disabled={graphTasksLoading}
+                  >
+                    {graphTasksLoading ? "Refreshing..." : "Refresh tasks"}
+                  </button>
+                </div>
+              </div>
+              {graphTasksError && <p className="supporting-note">{graphTasksError}</p>}
+              {!graphTasksError && visibleGraphTasks.length === 0 && (
+                <p className="supporting-note">
+                  {graphTaskFilter === "active" ? "No active graph tasks right now." : "No recent graph tasks found."}
+                </p>
+              )}
+              {!graphTasksError && visibleGraphTasks.length > 0 && (
+                <div className="task-monitor-list">
+                  {visibleGraphTasks.map((task) => (
+                    <div key={task.taskId} className="task-monitor-entry">
+                      <div className="task-monitor-row">
+                        <span className={`task-status-chip task-status-${String(task.status || "").toLowerCase()}`}>
+                          {task.status || "UNKNOWN"}
+                        </span>
+                        <div className="task-row-body">
+                          <span className="task-type-text">{task.taskType || "TASK"}</span>
+                          <span className="task-meta-text">
+                            Updated {formatTaskTime(task.updatedAt)} | Created {formatTaskTime(task.createdAt)}
+                          </span>
+                          {task.error && <span className="task-error-text">{String(task.error).slice(0, 120)}</span>}
+                        </div>
+                        <span className="task-id-text">{String(task.taskId || "").slice(0, 8)}</span>
+                        <button
+                          type="button"
+                          className="task-details-toggle"
+                          onClick={() => toggleTaskDetails(task.taskId)}
+                          aria-expanded={expandedGraphTaskIds.has(String(task.taskId || ""))}
+                        >
+                          {expandedGraphTaskIds.has(String(task.taskId || "")) ? "Hide" : "Details"}
+                        </button>
+                      </div>
+                      {expandedGraphTaskIds.has(String(task.taskId || "")) && (
+                        <div className="task-detail-panel">
+                          <p className="task-detail-meta">
+                            <strong>Task ID:</strong> {String(task.taskId || "-")}
+                          </p>
+                          <p className="task-detail-meta">
+                            <strong>Created:</strong> {formatTaskDateTime(task.createdAt)} | <strong>Updated:</strong>{" "}
+                            {formatTaskDateTime(task.updatedAt)}
+                          </p>
+                          <pre className="task-detail-json">{formatTaskPayload(task)}</pre>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
           {error && <p className="error-banner">{error}</p>}
 
-          {documentManagerOpen && (
-            <section className="document-manager-card">
-              <div className="document-manager-header">
-                <div>
-                  <p className="section-label">Document Management</p>
-                  <h2>Ingestion Controls</h2>
-                </div>
-                <button type="button" className="accent-soft" onClick={() => window.open(`${ingestionApiUrl}/chroma-ui`, "_blank", "noopener,noreferrer")}>
-                  Open Chroma UI
-                </button>
-              </div>
-
-              <div className="document-manager-grid">
-                <form className="manager-panel" onSubmit={handleCreateCustomer}>
-                  <p className="meta-title">Create Customer</p>
-                  <label>
-                    <span>Customer ID</span>
-                    <input
-                      type="text"
-                      value={newCustomerId}
-                      onChange={(event) => setNewCustomerId(event.target.value)}
-                      placeholder="acme_corp"
-                    />
-                  </label>
-                  <label>
-                    <span>Display Name</span>
-                    <input
-                      type="text"
-                      value={newCustomerName}
-                      onChange={(event) => setNewCustomerName(event.target.value)}
-                      placeholder="ACME Corp"
-                    />
-                  </label>
-                  <label>
-                    <span>Description (optional)</span>
-                    <input
-                      type="text"
-                      value={newCustomerDescription}
-                      onChange={(event) => setNewCustomerDescription(event.target.value)}
-                      placeholder="Customer-specific FAQ knowledge base"
-                    />
-                  </label>
-                  <div className="toolbar-actions compact-actions">
-                    <button type="submit" className="accent-solid" disabled={!canCreateCustomer}>
-                      {customerBusy ? "Creating..." : "Create customer"}
-                    </button>
-                    <button type="button" className="accent-soft" onClick={() => loadCustomers(customer)} disabled={customerBusy}>
-                      Refresh list
-                    </button>
-                  </div>
-                </form>
-
-                <div className="manager-panel">
-                  <p className="meta-title">Upload FAQ Document</p>
-                  <label>
-                    <span>Target customer</span>
-                    <select value={customer} onChange={(event) => setCustomer(event.target.value)}>
-                      {customers.map((option) => (
-                        <option key={option.customerId} value={option.customerId}>
-                          {option.name} ({option.customerId})
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <p className="supporting-note">
-                    This document will be indexed only for <strong>{trimmedCustomerId || "the selected customer"}</strong>.
-                  </p>
-                  <label>
-                    <span>Choose file</span>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept=".pdf,.md,.yaml,.yml,.doc,.docx,.txt,.png,.jpg,.jpeg"
-                      onChange={handleFaqSelection}
-                    />
-                  </label>
-                  <p className="supporting-note">
-                    Supported: PDF, Markdown, YAML, DOC/DOCX, TXT, PNG, JPG/JPEG
-                  </p>
-                  {selectedFaqFile && (
-                    <p className="supporting-note">
-                      Selected: <strong>{selectedFaqFile.name}</strong> ({Math.round(selectedFaqFile.size / 1024)} KB) for <strong>{trimmedCustomerId}</strong>
-                    </p>
-                  )}
-                  {faqUploadStatus && <p className="supporting-note">{faqUploadStatus}</p>}
-                  {faqUploadResult && (
-                    <div className="upload-summary">
-                      <p><strong>Uploaded:</strong> {faqUploadResult.originalFileName || uploadedFaqName}</p>
-                      <p><strong>Status:</strong> {faqUploadResult.processingStatus || "Processed"}</p>
-                      <p><strong>Chunks:</strong> {faqUploadResult.indexedChunkCount ?? faqUploadResult.chunkCount ?? 0}</p>
-                    </div>
-                  )}
-                  <div className="toolbar-actions compact-actions">
-                    <button type="button" className="accent-solid" onClick={handleFaqUpload} disabled={!canUploadFaq}>
-                      {uploadingFaq ? "Uploading..." : `Upload FAQ to ${trimmedCustomerId || "customer"}`}
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div className="manager-panel document-history-panel">
-                <div className="document-history-header">
-                  <p className="meta-title">Indexed Documents Inventory</p>
-                  <div className="toolbar-actions compact-actions analytics-actions">
-                    <button
-                      type="button"
-                      className="accent-soft"
-                      onClick={exportDocumentInventoryCsv}
-                      disabled={filteredCustomerDocuments.length === 0}
-                    >
-                      Export CSV
-                    </button>
-                    <button type="button" className="accent-soft" onClick={resetDocumentFilters}>
-                      Reset filters
-                    </button>
-                    <button type="button" className="accent-soft" onClick={() => loadCustomerDocuments()} disabled={documentsLoading}>
-                      {documentsLoading ? "Refreshing..." : "Refresh documents"}
-                    </button>
-                  </div>
-                </div>
-                <p className="supporting-note">{documentsStatus || "Viewing indexed documents across customers."}</p>
-
-                <div className="document-quick-strip" role="group" aria-label="Document quick filters">
-                  {documentQuickFilterChips.map((chip) => (
-                    <button
-                      key={chip.id}
-                      type="button"
-                      className={`quick-filter-chip ${activeDocumentQuickChipId === chip.id ? "active" : ""}`}
-                      onClick={() => applyDocumentQuickFilters(chip)}
-                    >
-                      {chip.label}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="document-filters">
-                  <label>
-                    <span>Customer</span>
-                    <select value={documentsCustomerFilter} onChange={(event) => setDocumentsCustomerFilter(event.target.value)}>
-                      <option value="all">All customers</option>
-                      {documentCustomerOptions.map((entry) => (
-                        <option key={entry} value={entry}>{entry}</option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label>
-                    <span>Status</span>
-                    <select value={documentsStatusFilter} onChange={(event) => setDocumentsStatusFilter(event.target.value)}>
-                      <option value="all">All status</option>
-                      {documentStatusOptions.map((entry) => (
-                        <option key={entry} value={entry}>{entry}</option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label>
-                    <span>File Type</span>
-                    <select value={documentsTypeFilter} onChange={(event) => setDocumentsTypeFilter(event.target.value)}>
-                      <option value="all">All types</option>
-                      {documentTypeOptions.map((entry) => (
-                        <option key={entry} value={entry}>{entry}</option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label>
-                    <span>Search</span>
-                    <input
-                      type="text"
-                      value={documentsSearchTerm}
-                      onChange={(event) => setDocumentsSearchTerm(event.target.value)}
-                      placeholder="Customer, file, structure"
-                    />
-                  </label>
-                </div>
-
-                <div className="document-presets">
-                  <div className="document-preset-create">
-                    <input
-                      type="text"
-                      value={newDocumentPresetName}
-                      onChange={(event) => setNewDocumentPresetName(event.target.value)}
-                      placeholder="Save current document filters as preset"
-                    />
-                    <button
-                      type="button"
-                      className="accent-soft"
-                      onClick={saveDocumentPreset}
-                      disabled={!newDocumentPresetName.trim()}
-                    >
-                      Save preset
-                    </button>
-                    <button
-                      type="button"
-                      className="accent-soft"
-                      onClick={exportDocumentPresets}
-                      disabled={documentPresets.length === 0}
-                    >
-                      Export presets
-                    </button>
-                    <button
-                      type="button"
-                      className="accent-soft"
-                      onClick={triggerDocumentPresetImport}
-                    >
-                      Import presets
-                    </button>
-                    <input
-                      ref={documentPresetImportInputRef}
-                      type="file"
-                      accept="application/json,.json"
-                      className="hidden-input"
-                      onChange={handleDocumentPresetImport}
-                    />
-                  </div>
-
-                  {documentPresets.length > 0 && (
-                    <div className="document-preset-list">
-                      {documentPresets.map((preset) => (
-                        <div key={preset.name} className="document-preset-item">
-                          <button
-                            type="button"
-                            className="quick-filter-chip"
-                            onClick={() => applyDocumentPreset(preset)}
-                          >
-                            {preset.name}
-                          </button>
-                          <button
-                            type="button"
-                            className="preset-delete-btn"
-                            onClick={() => deleteDocumentPreset(preset.name)}
-                            aria-label={`Delete document preset ${preset.name}`}
-                          >
-                            x
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <p className="document-summary-note">
-                  Showing {documentFilterSummary.rowCount} rows | {documentFilterSummary.customerCount} customers | {documentFilterSummary.statusCount} statuses | {documentFilterSummary.typeCount} types
-                </p>
-
-                {filteredCustomerDocuments.length > 0 ? (
-                  <div className="table-scroll table-scroll-y table-scroll-tall">
-                    <table className="analytics-table">
-                      <thead>
-                        <tr>
-                          <th>Customer</th>
-                          <th>Document</th>
-                          <th>Type</th>
-                          <th>Status</th>
-                          <th>Structure</th>
-                          <th>Chunks</th>
-                          <th>Size</th>
-                          <th>Indexed</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filteredCustomerDocuments.map((document, index) => (
-                          <tr key={`${document.customerCode}-${document.id}-${index}`}>
-                            <td>{document.customerCode}</td>
-                            <td>{document.originalFileName}</td>
-                            <td>{String(document.fileType || "").toUpperCase()}</td>
-                            <td>{document.processingStatus}</td>
-                            <td>{document.detectedStructure || "Pending"}</td>
-                            <td>{document.indexedChunkCount ?? document.chunkCount ?? 0}</td>
-                            <td>{Math.round((document.fileSizeBytes || 0) / 1024)} KB</td>
-                            <td>{document.indexedAt ? new Date(document.indexedAt).toLocaleString() : "-"}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <div className="upload-summary">
-                    <p>No indexed documents to show yet.</p>
-                  </div>
-                )}
-              </div>
-            </section>
-          )}
         </section>
 
         {analyticsVisible && (
@@ -2106,8 +2210,9 @@ function App() {
                 type="button"
                 className={`quick-filter-chip ${activeQuickChipId === chip.id ? "active" : ""}`}
                 onClick={() => applyQuickAnalyticsFilters(chip)}
+                disabled={Boolean(chip.disabled)}
               >
-                {chip.label}
+                {chip.label}{chip.disabled ? " (Coming soon)" : ""}
               </button>
             ))}
           </div>
@@ -2391,7 +2496,10 @@ function App() {
                       <h3>{result.frameworkLabel || result.serviceLabel}</h3>
                       <p className="result-answer">{result.answer}</p>
                       <p className="result-latency">Latency: {result.latencyMs} ms</p>
-                      {result.meta.length > 0 && (
+                      <p className="result-latency">
+                        Source: {classifyResponseSource(result.strategy || extractMetaValue(result.meta, "Strategy"))}
+                      </p>
+                      {false && (
                         <div className="meta-block">
                           <p className="meta-title">Signals</p>
                           <ul>
@@ -2421,6 +2529,76 @@ function App() {
           <button type="submit" disabled={!canAsk}>{primaryActionLabel}</button>
         </form>
       </main>
+
+      <button
+        type="button"
+        className="faq-panel-toggle"
+        onClick={() => setDocumentManagerOpen((currentValue) => !currentValue)}
+        aria-expanded={documentManagerOpen}
+        aria-controls="faq-upload-panel"
+      >
+        {documentManagerOpen ? "Close FAQ" : "FAQ"}
+      </button>
+
+      <aside id="faq-upload-panel" className={`faq-side-panel ${documentManagerOpen ? "open" : ""}`}>
+        <div className="faq-side-panel-header">
+          <p className="section-label">FAQ Upload</p>
+          <button
+            type="button"
+            className="accent-soft"
+            onClick={() => setDocumentManagerOpen(false)}
+          >
+            Close
+          </button>
+        </div>
+
+        <p className="supporting-note">
+          Upload one FAQ document. Customer name is auto-detected using LLM and document heuristics.
+        </p>
+
+        <label>
+          <span>Choose file</span>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf,.md,.yaml,.yml,.doc,.docx,.txt,.png,.jpg,.jpeg"
+            onChange={handleFaqSelection}
+          />
+        </label>
+
+        <p className="supporting-note">
+          Supported: PDF, Markdown, YAML, DOC/DOCX, TXT, PNG, JPG/JPEG
+        </p>
+
+        {selectedFaqFile && (
+          <p className="supporting-note">
+            Selected: <strong>{selectedFaqFile.name}</strong> ({Math.round(selectedFaqFile.size / 1024)} KB)
+          </p>
+        )}
+
+        {faqUploadStatus && <p className="supporting-note">{faqUploadStatus}</p>}
+
+        {faqUploadResult && (
+          <div className="upload-summary">
+            <p><strong>Uploaded:</strong> {faqUploadResult.originalFileName || uploadedFaqName}</p>
+            <p><strong>Status:</strong> {faqUploadResult.processingStatus || "Processed"}</p>
+            <p><strong>Chunks:</strong> {faqUploadResult.indexedChunkCount ?? faqUploadResult.chunkCount ?? 0}</p>
+          </div>
+        )}
+
+        <div className="toolbar-actions compact-actions">
+          <button type="button" className="accent-solid" onClick={handleFaqUpload} disabled={!canUploadFaq}>
+            {uploadingFaq ? "Uploading..." : "Upload and Auto-Detect Customer"}
+          </button>
+          <button
+            type="button"
+            className="accent-soft"
+            onClick={() => window.open(`${ingestionApiUrl}/chroma-ui`, "_blank", "noopener,noreferrer")}
+          >
+            Open Chroma UI
+          </button>
+        </div>
+      </aside>
     </div>
   );
 }

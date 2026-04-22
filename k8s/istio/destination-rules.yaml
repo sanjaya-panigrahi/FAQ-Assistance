@@ -1,0 +1,71 @@
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: spring-ai-neo4j-graph-dr
+  namespace: faq-assistance
+spec:
+  host: spring-ai-neo4j-graph
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: 50
+      http:
+        http1MaxPendingRequests: 50
+        maxRequestsPerConnection: 20
+    outlierDetection:
+      consecutive5xxErrors: 5
+      interval: 10s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 50
+  subsets:
+    - name: v1
+      labels:
+        app: spring-ai-neo4j-graph
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: langchain-neo4j-graph-dr
+  namespace: faq-assistance
+spec:
+  host: langchain-neo4j-graph
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: 40
+      http:
+        http1MaxPendingRequests: 40
+        maxRequestsPerConnection: 20
+    outlierDetection:
+      consecutive5xxErrors: 5
+      interval: 10s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 50
+  subsets:
+    - name: v1
+      labels:
+        app: langchain-neo4j-graph
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: langgraph-neo4j-graph-dr
+  namespace: faq-assistance
+spec:
+  host: langgraph-neo4j-graph
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: 40
+      http:
+        http1MaxPendingRequests: 40
+        maxRequestsPerConnection: 20
+    outlierDetection:
+      consecutive5xxErrors: 5
+      interval: 10s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 50
+  subsets:
+    - name: v1
+      labels:
+        app: langgraph-neo4j-graph

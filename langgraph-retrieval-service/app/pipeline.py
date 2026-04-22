@@ -1,8 +1,10 @@
 import re
 import time
+import json
 from typing import TypedDict
 
 import chromadb
+import redis
 
 from langchain_chroma import Chroma
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
@@ -24,6 +26,12 @@ class RetrievalState(TypedDict, total=False):
 
 class RetrievalPipeline:
     def __init__(self) -> None:
+        self._redis = redis.Redis(
+            host=settings.redis_host,
+            port=settings.redis_port,
+            decode_responses=True,
+        )
+
         graph = StateGraph(RetrievalState)
         graph.add_node("transform", self._node_transform_query)
         graph.add_node("hybrid_retrieve", self._node_hybrid_retrieve)
@@ -50,6 +58,15 @@ class RetrievalPipeline:
         return 0
 
     def query(self, request: RetrievalQueryRequest) -> RetrievalQueryResponse:
+        cache_key = f"retrieval:{request.tenantId}:{request.question}:{request.topK}:{request.similarityThreshold}:{request.queryContext}"
+        try:
+            cached = self._redis.get(cache_key)
+            if cached:
+                payload = json.loads(cached)
+                return RetrievalQueryResponse.model_validate(payload)
+        except Exception:
+            pass
+
         total_start = time.perf_counter()
         final_state = self._graph.invoke({"request": request})
         total_latency_ms = int((time.perf_counter() - total_start) * 1000)
@@ -72,7 +89,7 @@ class RetrievalPipeline:
             for index, item in enumerate(ranked_chunks)
         ]
 
-        return RetrievalQueryResponse(
+        response = RetrievalQueryResponse(
             tenantId=request.tenantId,
             question=request.question,
             transformedQuery=str(final_state.get("transformed_query", request.question)),
@@ -84,6 +101,17 @@ class RetrievalPipeline:
             generationLatencyMs=generation_latency_ms,
             chunks=response_chunks,
         )
+
+        try:
+            self._redis.setex(
+                cache_key,
+                settings.redis_ttl_seconds,
+                response.model_dump_json(),
+            )
+        except Exception:
+            pass
+
+        return response
 
     def _node_transform_query(self, state: RetrievalState) -> RetrievalState:
         request = state["request"]

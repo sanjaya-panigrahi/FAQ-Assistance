@@ -51,6 +51,11 @@ services:
     env_file: .env
     environment:
       NEO4J_URI: bolt://neo4j-unified:7687
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-faq-kafka:29092}
+      APP_EVENTS_ENABLED: ${APP_EVENTS_ENABLED:-false}
+      APP_EVENTS_CONSUMER_ENABLED: ${APP_EVENTS_CONSUMER_ENABLED:-false}
+      APP_EVENTS_TOPIC: ${APP_EVENTS_TOPIC:-graph.tasks.lifecycle.v1}
+      APP_EVENTS_CONSUMER_GROUP_ID: ${APP_EVENTS_CONSUMER_GROUP_ID:-spring-ai-neo4j-graph-consumer}
     depends_on:
       neo4j-unified:
         condition: service_healthy
@@ -152,8 +157,29 @@ services:
     environment:
       APP_PORT: 8000
       NEO4J_URI: bolt://neo4j-unified:7687
+      REDIS_HOST: redis-cache
     depends_on:
       neo4j-unified:
+        condition: service_healthy
+    volumes:
+      - ./shared-data:/opt/data:ro
+    networks:
+      - faq-network
+
+  langchain-neo4j-graph-worker:
+    build:
+      context: ./langchain-neo4j-graph
+    command: celery -A app.celery_app.celery_app worker --loglevel=info --concurrency=2
+    env_file: .env
+    environment:
+      NEO4J_URI: bolt://neo4j-unified:7687
+      REDIS_HOST: redis-cache
+      CELERY_BROKER_URL: redis://redis-cache:6379/2
+      CELERY_RESULT_BACKEND: redis://redis-cache:6379/3
+    depends_on:
+      neo4j-unified:
+        condition: service_healthy
+      redis-cache:
         condition: service_healthy
     volumes:
       - ./shared-data:/opt/data:ro
@@ -256,8 +282,29 @@ services:
     environment:
       APP_PORT: 8000
       NEO4J_URI: bolt://neo4j-unified:7687
+      REDIS_HOST: redis-cache
     depends_on:
       neo4j-unified:
+        condition: service_healthy
+    volumes:
+      - ./shared-data:/opt/data:ro
+    networks:
+      - faq-network
+
+  langgraph-neo4j-graph-worker:
+    build:
+      context: ./langgraph-neo4j-graph
+    command: celery -A app.celery_app.celery_app worker --loglevel=info --concurrency=2
+    env_file: .env
+    environment:
+      NEO4J_URI: bolt://neo4j-unified:7687
+      REDIS_HOST: redis-cache
+      CELERY_BROKER_URL: redis://redis-cache:6379/4
+      CELERY_RESULT_BACKEND: redis://redis-cache:6379/5
+    depends_on:
+      neo4j-unified:
+        condition: service_healthy
+      redis-cache:
         condition: service_healthy
     volumes:
       - ./shared-data:/opt/data:ro
@@ -509,7 +556,6 @@ services:
 
 volumes:
   neo4j_data:
-    driver: local
   redis_data:
     driver: local
   chroma_faq_data:

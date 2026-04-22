@@ -15,6 +15,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.regex.Pattern;
 
 /**
  * RAG (Retrieval Augmented Generation) Service
@@ -196,6 +197,56 @@ public class RagService {
     }
 
     /**
+     * INDEXING PIPELINE: Upload and index with automatic customer detection.
+     *
+     * Steps:
+     * 1. Validate file and extract text
+     * 2. Detect customer name via LLM and fallback heuristics
+     * 3. Resolve existing customer or create new one
+     * 4. Reuse standard indexing pipeline
+     */
+    public AutoCustomerUploadResponse indexDocumentAutoCustomer(MultipartFile file) throws IOException {
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("File cannot be empty");
+        }
+
+        if (!parserFactory.isSupported(file.getOriginalFilename())) {
+            throw new IllegalArgumentException("Unsupported file type: " + file.getOriginalFilename());
+        }
+
+        String extractedText = parserFactory.extractText(file);
+        CustomerDetection detection = detectCustomerFromDocument(file.getOriginalFilename(), extractedText);
+
+        Customer customer = findExistingCustomer(detection);
+        boolean created = false;
+
+        if (customer == null) {
+            customer = Customer.builder()
+                .customerId(detection.customerId())
+                .name(detection.customerName())
+                .description("Auto-created from uploaded FAQ document")
+                .contactEmail(null)
+                .isActive(true)
+                .documentCount(0)
+                .indexedChunksCount(0L)
+                .build();
+            customer = customerRepository.save(customer);
+            created = true;
+            log.info("Auto-created customer {} ({}) from uploaded document", customer.getName(), customer.getCustomerId());
+        }
+
+        DocumentResponse documentResponse = indexDocument(customer.getCustomerId(), file);
+
+        return AutoCustomerUploadResponse.builder()
+            .customerId(customer.getCustomerId())
+            .customerName(customer.getName())
+            .customerCreated(created)
+            .detectionSource(detection.source())
+            .document(documentResponse)
+            .build();
+    }
+
+    /**
      * QUERY PIPELINE: Answer a question using RAG
      *
      * Process Flow:
@@ -211,63 +262,89 @@ public class RagService {
     public FaqQueryResponse queryFaq(FaqQueryRequest request) {
         log.info("Processing FAQ query for customer: {}", request.getCustomerId());
 
-        // 1. Validate customer
-        Customer customer = customerRepository.findByCustomerId(request.getCustomerId())
-            .orElseThrow(() -> new IllegalArgumentException("Customer not found: " + request.getCustomerId()));
+        try {
+            // 1. Validate customer
+            Customer customer = customerRepository.findByCustomerId(request.getCustomerId())
+                .orElseThrow(() -> new IllegalArgumentException("Customer not found: " + request.getCustomerId()));
 
-        if (customer.getCollectionName() == null) {
+            if (customer.getCollectionName() == null) {
+                log.warn("No collection for customer: {}", request.getCustomerId());
+                return FaqQueryResponse.builder()
+                    .question(request.getQuestion())
+                    .answer("No documents indexed for this customer yet.")
+                    .sourceResults(new SearchResultResponse[0])
+                    .totalSourcesUsed(0)
+                    .averageSimilarity(0.0)
+                    .build();
+            }
+
+            int effectiveTopK = request.getTopK() != null ? request.getTopK() : topK;
+            double effectiveThreshold = request.getSimilarityThreshold() != null ?
+                request.getSimilarityThreshold() : similarityThreshold;
+
+            // 2. Search ChromaDB
+            log.debug("Querying ChromaDB collection: {} with topK={}, threshold={}", 
+                customer.getCollectionName(), effectiveTopK, effectiveThreshold);
+            
+            Map<String, Object> searchResults = chromadbService.query(
+                customer.getCollectionName(),
+                Collections.singletonList(request.getQuestion()),
+                effectiveTopK,
+                null
+            );
+
+            List<SearchResultResponse> results = parseSearchResults(searchResults, effectiveThreshold);
+
+            if (results.isEmpty()) {
+                log.info("No relevant results found for question: {}", request.getQuestion());
+                return FaqQueryResponse.builder()
+                    .question(request.getQuestion())
+                    .answer("No relevant information found in the FAQ documents.")
+                    .sourceResults(new SearchResultResponse[0])
+                    .totalSourcesUsed(0)
+                    .averageSimilarity(0.0)
+                    .build();
+            }
+
+            // 3. Generate answer with LLM
+            String context = buildContextFromResults(results);
+            String answer = generateAnswerWithLLM(request.getQuestion(), context);
+
+            // 4. Calculate metrics
+            double avgSimilarity = results.stream()
+                .mapToDouble(SearchResultResponse::getSimilarityScore)
+                .average()
+                .orElse(0.0);
+
+            log.info("Generated answer using {} sources with avg similarity: {}", results.size(), avgSimilarity);
+
             return FaqQueryResponse.builder()
                 .question(request.getQuestion())
-                .answer("No documents indexed for this customer yet.")
+                .answer(answer)
+                .sourceResults(results.toArray(new SearchResultResponse[0]))
+                .totalSourcesUsed(results.size())
+                .averageSimilarity(avgSimilarity)
+                .build();
+                
+        } catch (IllegalArgumentException e) {
+            log.error("Invalid query request: {}", e.getMessage());
+            return FaqQueryResponse.builder()
+                .question(request.getQuestion())
+                .answer("Error: " + e.getMessage())
+                .sourceResults(new SearchResultResponse[0])
+                .totalSourcesUsed(0)
+                .averageSimilarity(0.0)
+                .build();
+        } catch (Exception e) {
+            log.error("Error processing FAQ query", e);
+            return FaqQueryResponse.builder()
+                .question(request.getQuestion())
+                .answer("Service error: Unable to process query at this time. Please try again later.")
                 .sourceResults(new SearchResultResponse[0])
                 .totalSourcesUsed(0)
                 .averageSimilarity(0.0)
                 .build();
         }
-
-        int effectiveTopK = request.getTopK() != null ? request.getTopK() : topK;
-        double effectiveThreshold = request.getSimilarityThreshold() != null ?
-            request.getSimilarityThreshold() : similarityThreshold;
-
-        // 2. Search ChromaDB
-        Map<String, Object> searchResults = chromadbService.query(
-            customer.getCollectionName(),
-            Collections.singletonList(request.getQuestion()),
-            effectiveTopK,
-            null
-        );
-
-        List<SearchResultResponse> results = parseSearchResults(searchResults, effectiveThreshold);
-
-        if (results.isEmpty()) {
-            return FaqQueryResponse.builder()
-                .question(request.getQuestion())
-                .answer("No relevant information found in the FAQ documents.")
-                .sourceResults(new SearchResultResponse[0])
-                .totalSourcesUsed(0)
-                .averageSimilarity(0.0)
-                .build();
-        }
-
-        // 3. Generate answer with LLM
-        String context = buildContextFromResults(results);
-        String answer = generateAnswerWithLLM(request.getQuestion(), context);
-
-        // 4. Calculate metrics
-        double avgSimilarity = results.stream()
-            .mapToDouble(SearchResultResponse::getSimilarityScore)
-            .average()
-            .orElse(0.0);
-
-        log.info("Generated answer using {} sources", results.size());
-
-        return FaqQueryResponse.builder()
-            .question(request.getQuestion())
-            .answer(answer)
-            .sourceResults(results.toArray(new SearchResultResponse[0]))
-            .totalSourcesUsed(results.size())
-            .averageSimilarity(avgSimilarity)
-            .build();
     }
 
     /**
@@ -360,18 +437,73 @@ public class RagService {
 
     /**
      * Parse ChromaDB search results
+     * 
+     * ChromaDB v2 returns:
+     * {
+     *   "distances": [[d1, d2, ...]], (distance scores [0-2])
+     *   "documents": [[doc1, doc2, ...]], (retrieved text)
+     *   "metadatas": [[{...}, {...}, ...]], (chunk metadata)
+     *   "ids": [[id1, id2, ...]] (chunk ids)
+     * }
+     * 
+     * Similarity = 1.0 - (distance / 2.0)
      */
     private List<SearchResultResponse> parseSearchResults(Map<String, Object> searchResults,
                                                           double threshold) {
         List<SearchResultResponse> results = new ArrayList<>();
 
-        // Parse ChromaDB response structure
-        Object distances = searchResults.get("distances");
-        Object documents = searchResults.get("documents");
-        Object metadatas = searchResults.get("metadatas");
+        try {
+            @SuppressWarnings("unchecked")
+            List<List<Double>> distances = (List<List<Double>>) searchResults.get("distances");
+            @SuppressWarnings("unchecked")
+            List<List<String>> documents = (List<List<String>>) searchResults.get("documents");
+            @SuppressWarnings("unchecked")
+            List<List<Map<String, Object>>> metadatas = 
+                (List<List<Map<String, Object>>>) searchResults.get("metadatas");
 
-        // Implementation depends on ChromaDB response format
-        // This is simplified placeholder
+            if (distances == null || documents == null || distances.isEmpty() || documents.isEmpty()) {
+                log.debug("No results from ChromaDB query");
+                return results;
+            }
+
+            List<Double> queryDistances = distances.get(0);
+            List<String> queryDocuments = documents.get(0);
+            List<Map<String, Object>> queryMetadatas = (metadatas != null && !metadatas.isEmpty()) 
+                ? metadatas.get(0) 
+                : new ArrayList<>();
+
+            // Parse each result
+            for (int i = 0; i < queryDocuments.size(); i++) {
+                double distance = queryDistances.get(i);
+                double similarity = 1.0 - (distance / 2.0); // Normalize distance to similarity
+
+                // Skip results below threshold
+                if (similarity < threshold) {
+                    log.debug("Skipping result with similarity {} < threshold {}", similarity, threshold);
+                    continue;
+                }
+
+                String content = queryDocuments.get(i);
+                Map<String, Object> metadata = i < queryMetadatas.size() 
+                    ? queryMetadatas.get(i) 
+                    : new HashMap<>();
+
+                SearchResultResponse result = SearchResultResponse.builder()
+                    .content(content)
+                    .similarityScore(similarity)
+                    .sourceDocument((String) metadata.getOrDefault("document_name", "Unknown"))
+                    .chunkNumber(((Number) metadata.getOrDefault("chunk_number", 0)).intValue())
+                    .metadata(metadata.toString())
+                    .build();
+
+                results.add(result);
+                log.debug("Added search result: {} from {}", i, result.getSourceDocument());
+            }
+
+            log.info("Parsed {} search results from ChromaDB", results.size());
+        } catch (Exception e) {
+            log.error("Error parsing ChromaDB search results", e);
+        }
 
         return results;
     }
@@ -443,5 +575,124 @@ public class RagService {
             .indexedAt(doc.getIndexedAt())
             .build();
     }
+
+    private Customer findExistingCustomer(CustomerDetection detection) {
+        Optional<Customer> exact = customerRepository.findByCustomerId(detection.customerId());
+        if (exact.isPresent()) {
+            return exact.get();
+        }
+
+        return customerRepository.findAll()
+            .stream()
+            .filter(existing -> existing.getCustomerId() != null && existing.getCustomerId().equalsIgnoreCase(detection.customerId()))
+            .findFirst()
+            .orElseGet(() -> customerRepository.findAll()
+                .stream()
+                .filter(existing -> existing.getName() != null && existing.getName().equalsIgnoreCase(detection.customerName()))
+                .findFirst()
+                .orElse(null));
+    }
+
+    private CustomerDetection detectCustomerFromDocument(String fileName, String text) {
+        String heuristicName = inferCustomerNameFromFilename(fileName);
+        String llmName = inferCustomerNameFromLlm(text, heuristicName);
+
+        String chosenName = isUsefulCustomerName(llmName)
+            ? llmName.trim()
+            : (isUsefulCustomerName(heuristicName) ? heuristicName.trim() : "General Customer");
+
+        String customerId = toCustomerId(chosenName);
+        String normalizedName = normalizeDisplayName(chosenName);
+        String source = isUsefulCustomerName(llmName) ? "llm" : "filename-heuristic";
+
+        return new CustomerDetection(customerId, normalizedName, source);
+    }
+
+    private String inferCustomerNameFromLlm(String text, String fallback) {
+        try {
+            String snippet = text == null ? "" : text.substring(0, Math.min(2500, text.length()));
+            String prompt = "Identify the company or customer name in this FAQ document. "
+                + "Return only the name and nothing else. "
+                + "If no clear name exists, return UNKNOWN.\n\n"
+                + "Fallback hint: " + (fallback == null ? "UNKNOWN" : fallback) + "\n\n"
+                + "Document:\n" + snippet;
+
+            String response = chatClient.prompt().user(prompt).call().content();
+            if (response == null) {
+                return null;
+            }
+
+            return response
+                .replace("\"", "")
+                .replace("'", "")
+                .replace("`", "")
+                .replace("\n", " ")
+                .trim();
+        } catch (Exception e) {
+            log.debug("LLM customer detection failed, fallback to filename heuristic", e);
+            return null;
+        }
+    }
+
+    private String inferCustomerNameFromFilename(String fileName) {
+        if (fileName == null || fileName.isBlank()) {
+            return null;
+        }
+
+        String base = fileName;
+        int dotIndex = base.lastIndexOf('.');
+        if (dotIndex > 0) {
+            base = base.substring(0, dotIndex);
+        }
+
+        String cleaned = base
+            .replaceAll("(?i)faq", " ")
+            .replaceAll("(?i)knowledge.?base", " ")
+            .replaceAll("(?i)policy", " ")
+            .replaceAll("[_\\-]+", " ")
+            .trim();
+
+        return cleaned.isBlank() ? null : cleaned;
+    }
+
+    private boolean isUsefulCustomerName(String value) {
+        if (value == null) {
+            return false;
+        }
+
+        String trimmed = value.trim();
+        if (trimmed.isBlank()) {
+            return false;
+        }
+
+        String lowered = trimmed.toLowerCase(Locale.ROOT);
+        return !lowered.equals("unknown")
+            && !lowered.equals("n/a")
+            && !lowered.equals("none")
+            && !lowered.equals("general customer");
+    }
+
+    private String normalizeDisplayName(String rawName) {
+        String cleaned = rawName == null ? "General Customer" : rawName.trim();
+        if (cleaned.isBlank()) {
+            cleaned = "General Customer";
+        }
+        return cleaned;
+    }
+
+    private String toCustomerId(String value) {
+        String cleaned = value == null ? "general_customer" : value.toLowerCase(Locale.ROOT);
+        cleaned = Pattern.compile("[^a-z0-9]+")
+            .matcher(cleaned)
+            .replaceAll("_")
+            .replaceAll("^_+|_+$", "");
+
+        if (cleaned.isBlank()) {
+            return "general_customer";
+        }
+        return cleaned;
+    }
+
+    private record CustomerDetection(String customerId, String customerName, String source) {}
 
 }

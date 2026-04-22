@@ -72,6 +72,53 @@ select {
   margin: 0 auto;
 }
 
+.faq-panel-toggle {
+  position: fixed;
+  right: 16px;
+  top: 140px;
+  z-index: 20;
+  min-height: 34px;
+  border-radius: 999px;
+  padding: 0 12px;
+  background: #ffffff;
+  border: 1px solid rgba(23, 49, 58, 0.2);
+  color: #17313a;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.faq-side-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 100vh;
+  width: min(380px, 92vw);
+  padding: 18px;
+  background: #ffffff;
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 24px rgba(15, 23, 42, 0.18);
+  z-index: 25;
+  transform: translateX(102%);
+  transition: transform 180ms ease;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+}
+
+.faq-side-panel.open {
+  transform: translateX(0);
+}
+
+.faq-side-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .hero-card,
 .toolbar-card,
 .message-card,
@@ -114,6 +161,181 @@ select {
 .toolbar-card {
   margin-top: 16px;
   padding: 18px;
+}
+
+.graph-status-banner {
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--warn-line);
+  background: var(--warn-soft);
+  color: var(--text);
+  font-size: 0.94rem;
+  font-weight: 600;
+}
+
+.task-monitor-panel {
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-muted);
+  padding: 12px;
+}
+
+.task-monitor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.task-monitor-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.task-filter-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.task-filter-btn {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.task-filter-btn.active {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.task-monitor-list {
+  display: grid;
+  gap: 8px;
+}
+
+.task-monitor-entry {
+  border-radius: 10px;
+  background: #ffffff;
+  border: 1px solid rgba(23, 49, 58, 0.08);
+  overflow: hidden;
+}
+
+.task-monitor-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+}
+
+.task-status-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 74px;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.task-status-pending,
+.task-status-started,
+.task-status-running {
+  background: #fff4dd;
+  color: #8a5a12;
+}
+
+.task-status-complete,
+.task-status-success {
+  background: #e4f7ee;
+  color: #0f6b46;
+}
+
+.task-status-failed,
+.task-status-failure {
+  background: #ffe8e8;
+  color: #a72f2f;
+}
+
+.task-type-text {
+  color: var(--text);
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.task-row-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.task-meta-text {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.task-error-text {
+  color: var(--error);
+  font-size: 0.76rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-id-text {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.task-details-toggle {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--accent-strong);
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.task-detail-panel {
+  padding: 8px 10px 10px;
+  border-top: 1px dashed rgba(23, 49, 58, 0.16);
+  background: #f9fcfb;
+}
+
+.task-detail-meta {
+  margin: 2px 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.task-detail-json {
+  margin: 8px 0 0;
+  max-height: 160px;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 8px;
+  background: #112028;
+  color: #c7f9ef;
+  font-size: 0.72rem;
+  line-height: 1.35;
 }
 
 .toolbar-grid {
@@ -794,6 +1016,15 @@ button:disabled {
 @media (max-width: 640px) {
   .app-shell {
     padding: 16px;
+  }
+
+  .faq-panel-toggle {
+    right: 12px;
+    top: 96px;
+  }
+
+  .faq-side-panel {
+    width: 100vw;
   }
 
   .hero-card,

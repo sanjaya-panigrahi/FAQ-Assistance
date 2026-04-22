@@ -1,0 +1,66 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: faq-assistance-routing
+  namespace: faq-assistance
+spec:
+  hosts:
+    - "*"
+  gateways:
+    - istio-system/faq-assistance-gateway
+  http:
+    - name: spring-agentic
+      match:
+        - uri:
+            prefix: /spring/agentic
+      rewrite:
+        uri: /
+      route:
+        - destination:
+            host: spring-ai-agentic
+            port:
+              number: 9000
+    - name: spring-graph
+      match:
+        - uri:
+            prefix: /spring/graph
+      rewrite:
+        uri: /
+      route:
+        - destination:
+            host: spring-ai-neo4j-graph
+            port:
+              number: 9000
+    - name: spring-retrieval
+      match:
+        - uri:
+            prefix: /spring/retrieval
+      rewrite:
+        uri: /
+      route:
+        - destination:
+            host: spring-ai-faq-retrieval
+            port:
+              number: 9010
+    - name: langchain-graph
+      match:
+        - uri:
+            prefix: /langchain/graph
+      rewrite:
+        uri: /
+      route:
+        - destination:
+            host: langchain-neo4j-graph
+            port:
+              number: 8000
+    - name: langgraph-graph
+      match:
+        - uri:
+            prefix: /langgraph/graph
+      rewrite:
+        uri: /
+      route:
+        - destination:
+            host: langgraph-neo4j-graph
+            port:
+              number: 8000

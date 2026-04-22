@@ -4,6 +4,16 @@ server:
 spring:
   application:
     name: spring-ai-corrective
+  cache:
+    type: redis
+    redis:
+      time-to-live: 1800000
+      key-prefix: "corrective-rag:"
+  data:
+    redis:
+      host: ${REDIS_HOST:redis-cache}
+      port: ${REDIS_PORT:6379}
+      timeout: 2000ms
   ai:
     openai:
       api-key: ${OPENAI_API_KEY}

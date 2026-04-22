@@ -1,4 +1,4 @@
-.PHONY: help build-all up-all up-all-limited down-all down-rebuild-up rebuild-indexes test-all clean clean-orphans
+.PHONY: help check-tools setup-env build-all up-all up-all-limited down-all down-rebuild-up rebuild-indexes test-all clean kong-refresh kong-verify-graph kong-recover-graph kong-smoke-all phase3-smoke-events kafka-up kafka-down
 .PHONY: spring-build spring-up spring-down spring-test
 .PHONY: langchain-build langchain-up langchain-down langchain-test
 .PHONY: langgraph-build langgraph-up langgraph-down langgraph-test
@@ -15,7 +15,8 @@ help:
 	@echo "  test-all               Run smoke tests on all stacks"
 	@echo "  clean                  Down and remove all containers (incl. orphans)"
 	@echo "  rebuild-indexes        Rebuild FAQ indexes across all stacks"
-	@echo "  clean-orphans          Remove orphaned containers"
+	@echo "  check-tools            Validate local prerequisites"
+	@echo "  setup-env              Create missing .env files from examples"
 	@echo ""
 	@echo "Spring AI (Java, ports 8081-8085):"
 	@echo "  spring-build           Build Spring AI services"
@@ -37,13 +38,36 @@ help:
 	@echo ""
 	@echo "Resource management:"
 	@echo "  up-all-limited         Start all stacks WITH memory/CPU limits (recommended for local dev)"
+	@echo ""
+	@echo "Kong utilities:"
+	@echo "  kong-refresh           Restart Kong to clear stale DNS cache"
+	@echo "  kong-verify-graph      Verify /spring/graph route via Kong"
+	@echo "  kong-recover-graph     Refresh Kong + verify graph + 5x smoke checks"
+	@echo "  kong-smoke-all         Smoke-check graph/agentic/retrieval health and graph ask"
+	@echo ""
+	@echo "Phase 3 utilities:"
+	@echo "  kafka-up               Start local Kafka + Zookeeper stack"
+	@echo "  kafka-down             Stop local Kafka + Zookeeper stack"
+	@echo "  phase3-smoke-events    Verify Kafka event consume stats for Spring Graph lifecycle"
+
+check-tools:
+	@command -v docker >/dev/null 2>&1 || (echo "✗ docker not found" && exit 1)
+	@docker compose version >/dev/null 2>&1 || (echo "✗ docker compose not available" && exit 1)
+	@command -v curl >/dev/null 2>&1 || (echo "✗ curl not found" && exit 1)
+	@echo "✓ Required tools are available"
+
+setup-env:
+	@cp -n .env.example .env || true
+	@cp -n .env.langchain.example .env.langchain || true
+	@cp -n .env.langgraph.example .env.langgraph || true
+	@echo "✓ Environment files are ready"
 
 # === All Stacks ===
 
 build-all: spring-build langchain-build langgraph-build
 	@echo "✓ All stacks built"
 
-up-all: spring-up langchain-up langgraph-up
+up-all: check-tools setup-env spring-up langchain-up langgraph-up
 	@echo "✓ All stacks running"
 	@echo ""
 	@echo "Spring AI UI:  http://localhost:5173"
@@ -53,6 +77,7 @@ up-all: spring-up langchain-up langgraph-up
 # Starts all stacks with per-container memory/CPU caps to prevent OOM on local machines
 up-all-limited:
 	@echo "Starting all stacks with resource limits..."
+	@$(MAKE) check-tools setup-env
 	docker compose -f docker-compose.master.yml -f docker-compose.resources.yml -f docker-compose.kong.yml up -d --remove-orphans
 	@echo "✓ All stacks running with memory/CPU limits"
 
@@ -72,13 +97,115 @@ test-all: spring-test langchain-test langgraph-test
 rebuild-indexes: spring-rebuild-indexes langchain-rebuild-indexes langgraph-rebuild-indexes
 	@echo "✓ All indexes rebuilt"
 
-clean-orphans:
-	docker compose -f docker-compose.master.yml down --remove-orphans
-	@echo "✓ Orphaned containers removed"
-
 clean:
+	@$(MAKE) down-all
+	@docker compose -f docker-compose.kafka.yml down >/dev/null 2>&1 || true
 	docker compose -f docker-compose.master.yml down --remove-orphans
 	@echo "✓ Containers removed"
+
+kong-refresh:
+	@echo "Restarting Kong gateway to clear resolver cache..."
+	docker restart kong-gateway
+	@echo "✓ Kong restarted (may take ~20-40s to become healthy)"
+
+kong-verify-graph:
+	@echo "Verifying /spring/graph route via Kong..."
+	@curl -fsS --retry 40 --retry-delay 1 --retry-all-errors --retry-connrefused \
+		-X POST http://localhost:9080/spring/graph/api/query/ask \
+		-H 'Content-Type: application/json' \
+		-d '{"question":"What is Graph RAG?","customerId":"croma"}' > /dev/null \
+		&& echo "✓ /spring/graph is reachable via Kong" \
+		|| (echo "✗ /spring/graph failed via Kong after retries" && exit 1)
+
+kong-recover-graph: kong-refresh kong-verify-graph
+	@echo "Running 5-request smoke check for /spring/graph..."
+	@for i in 1 2 3 4 5; do \
+		code=$$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:9080/spring/graph/api/query/ask -H 'Content-Type: application/json' -d '{"question":"What is Graph RAG?","customerId":"croma"}'); \
+		echo "  graph smoke $$i: $$code"; \
+		if [ "$$code" != "200" ]; then \
+			echo "✗ Graph smoke check failed on attempt $$i"; \
+			exit 1; \
+		fi; \
+	done
+	@echo "✓ Graph recovery and smoke check passed"
+
+kong-smoke-all:
+	@echo "Running Kong smoke checks (graph, agentic, retrieval)..."
+	@curl -fsS http://localhost:9080/spring/graph/actuator/health > /dev/null \
+		&& echo "✓ /spring/graph/actuator/health" \
+		|| (echo "✗ /spring/graph/actuator/health" && exit 1)
+	@curl -fsS http://localhost:9080/spring/agentic/actuator/health > /dev/null \
+		&& echo "✓ /spring/agentic/actuator/health" \
+		|| (echo "✗ /spring/agentic/actuator/health" && exit 1)
+	@curl -fsS http://localhost:9080/spring/retrieval/actuator/health > /dev/null \
+		&& echo "✓ /spring/retrieval/actuator/health" \
+		|| (echo "✗ /spring/retrieval/actuator/health" && exit 1)
+	@code=$$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:9080/spring/graph/api/query/ask -H 'Content-Type: application/json' -d '{"question":"What is Graph RAG?","customerId":"croma"}'); \
+		echo "graph ask smoke: $$code"; \
+		if [ "$$code" != "200" ]; then \
+			echo "✗ /spring/graph/api/query/ask"; \
+			exit 1; \
+		fi
+	@echo "✓ Kong smoke checks passed"
+
+phase3-smoke-events:
+	@echo "Running Phase 3 event smoke check (Kafka producer+consumer + Spring graph task lifecycle)..."
+	@$(MAKE) kafka-up
+	@echo "Packaging spring-ai-neo4j-graph on host..."
+	@cd spring-ai-neo4j-graph && mvn -q -DskipTests package
+	@echo "Building spring-ai-neo4j-graph runtime image with latest host-built jar..."
+	@docker build -t faq-assistance-spring-ai-neo4j-graph:latest -f spring-ai-neo4j-graph/Dockerfile.runtime spring-ai-neo4j-graph
+	@echo "Recreating spring-ai-neo4j-graph with event producer/consumer enabled..."
+	@APP_EVENTS_ENABLED=true APP_EVENTS_CONSUMER_ENABLED=true APP_EVENTS_TOPIC=graph.tasks.lifecycle.v1 APP_EVENTS_CONSUMER_GROUP_ID=phase3-smoke-consumer KAFKA_BOOTSTRAP_SERVERS=faq-kafka:29092 \
+		docker compose -f docker-compose.master.yml up -d --force-recreate spring-ai-neo4j-graph
+	@stats_json=""; \
+		ready=0; \
+		for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do \
+			stats_json=$$(curl -fsS --max-time 3 http://localhost:8082/api/events/stats 2>/dev/null || true); \
+			if [ -n "$$stats_json" ]; then ready=1; break; fi; \
+			echo "  waiting for spring events endpoint ($$i/30)..."; \
+			sleep 1; \
+		done; \
+		if [ "$$ready" -ne 1 ]; then echo "✗ Spring events endpoint not ready in time"; exit 1; fi; \
+		initial_total=$$(echo "$$stats_json" | sed -n 's/.*"totalConsumed":\([0-9]*\).*/\1/p'); \
+		if [ -z "$$initial_total" ]; then echo "✗ Could not read initial totalConsumed"; exit 1; fi; \
+		echo "initial consumed events: $$initial_total"; \
+		task_id=$$(curl -sS -X POST http://localhost:8082/api/index/rebuild | sed -n 's/.*"taskId":"\([^"]*\)".*/\1/p'); \
+		if [ -z "$$task_id" ]; then echo "✗ Spring task id missing"; exit 1; fi; \
+		echo "spring task: $$task_id"; \
+		task_done=0; \
+		for i in $$(seq 1 180); do \
+			status=$$(curl -sS http://localhost:8082/api/tasks/$$task_id | awk -F'"status":"' 'NF>1{split($$2,a,"\""); print a[1]}'); \
+			echo "  spring poll $$i: $$status"; \
+			if [ "$$status" = "COMPLETE" ]; then task_done=1; break; fi; \
+			if [ "$$status" = "FAILED" ]; then echo "✗ Spring task failed"; exit 1; fi; \
+			sleep 1; \
+		done; \
+		if [ "$$task_done" -ne 1 ]; then echo "✗ Spring task did not reach COMPLETE in time"; exit 1; fi; \
+		events_ok=0; \
+		for i in $$(seq 1 30); do \
+			current_total=$$(curl -sS http://localhost:8082/api/events/stats | sed -n 's/.*"totalConsumed":\([0-9]*\).*/\1/p'); \
+			if [ -z "$$current_total" ]; then current_total=$$initial_total; fi; \
+			echo "  event poll $$i: totalConsumed=$$current_total"; \
+			if [ "$$current_total" -gt "$$initial_total" ]; then events_ok=1; break; fi; \
+			sleep 1; \
+		done; \
+		if [ "$$events_ok" -ne 1 ]; then \
+			echo "✗ Event stats did not increase after rebuild"; \
+			curl -sS http://localhost:8082/api/events/stats; echo; \
+			exit 1; \
+		fi
+	@echo "✓ Phase 3 event smoke check passed"
+
+kafka-up:
+	@echo "Starting Kafka infrastructure for Phase 3..."
+	docker compose -f docker-compose.kafka.yml up -d
+	@echo "✓ Kafka available on localhost:9092"
+
+kafka-down:
+	@echo "Stopping Kafka infrastructure..."
+	docker compose -f docker-compose.kafka.yml down
+	@echo "✓ Kafka stack stopped"
 
 # === Spring AI (Java) ===
 

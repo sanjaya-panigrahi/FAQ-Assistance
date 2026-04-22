@@ -76,9 +76,14 @@ class GraphPipeline:
             "UNWIND $rows AS row CREATE (f:FaqEntry {id: row.id, question: row.question, answer: row.answer})",
             {"rows": rows},
         )
-        graph_client.query(
-            "CREATE FULLTEXT INDEX faq_fulltext IF NOT EXISTS FOR (f:FaqEntry) ON EACH [f.question, f.answer]"
-        )
+        try:
+            graph_client.query(
+                "CREATE FULLTEXT INDEX faq_fulltext IF NOT EXISTS FOR (f:FaqEntry) ON EACH [f.question, f.answer]"
+            )
+        except Exception as exc:
+            message = str(exc)
+            if "EquivalentSchemaRuleAlreadyExists" not in message and "equivalent index already exists" not in message.lower():
+                raise
         return len(docs)
 
     def ask(self, question: str, customer_id: str | None = None) -> RagResponse:

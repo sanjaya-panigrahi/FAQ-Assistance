@@ -82,8 +82,6 @@ spec:
       - name: chroma
         image: chromadb/chroma:0.5.23
         env:
-        - name: CHROMA_DB_IMPL
-          value: "duckdb+parquet"
         - name: PERSIST_DIRECTORY
           value: "/data"
         ports:
@@ -98,12 +96,19 @@ spec:
           limits:
             memory: "1Gi"
             cpu: "1000m"
+        startupProbe:
+          httpGet:
+            path: /api/v2/heartbeat
+            port: 8000
+          failureThreshold: 24
+          periodSeconds: 5
         livenessProbe:
           httpGet:
             path: /api/v2/heartbeat
             port: 8000
-          initialDelaySeconds: 30
+          initialDelaySeconds: 0
           periodSeconds: 10
+          failureThreshold: 3
       volumes:
       - name: chroma-storage
         persistentVolumeClaim:
@@ -190,6 +195,8 @@ spec:
           value: '["apoc"]'
         - name: NEO4J_dbms_security_procedures_allowlist
           value: "apoc.coll.*,apoc.convert.*,apoc.map.*,apoc.text.*"
+        - name: NEO4J_server_config_strict__validation_enabled
+          value: "false"
         ports:
         - containerPort: 7687
           name: bolt

@@ -335,6 +335,32 @@ public class ChromaDBService {
     }
 
     /**
+     * Get total number of collections in ChromaDB
+     * @return Total collection count or -1 if error
+     */
+    public int getTotalCollectionCount() {
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(collectionsBase()))
+                .GET()
+                .build();
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+            if (response.statusCode() == 200) {
+                @SuppressWarnings("unchecked")
+                List<Map<String, Object>> collections = objectMapper.readValue(response.body(), List.class);
+                log.debug("Total collections in ChromaDB: {}", collections.size());
+                return collections.size();
+            }
+            return -1;
+        } catch (Exception e) {
+            log.warn("Error getting total collection count", e);
+            return -1;
+        }
+    }
+
+    /**
      * Get collection count
      * @param collectionName Collection name
      * @return Document count in collection

@@ -34,3 +34,5 @@ requests==2.32.3
 email-validator==2.2.0
 python-multipart==0.0.9
 langgraph==0.2.34
+
+tenacity==8.5.0

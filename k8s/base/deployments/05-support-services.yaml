@@ -222,6 +222,7 @@ spec:
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
+            add: ["CHOWN", "SETGID", "SETUID"]
             drop: ["ALL"]
           seccompProfile:
             type: RuntimeDefault

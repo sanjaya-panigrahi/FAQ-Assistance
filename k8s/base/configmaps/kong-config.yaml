@@ -39,7 +39,7 @@ data:
             strip_path: true
 
       - name: spring-neo4j-graph
-        url: http://spring-ai-neo4j-graph:9000
+        url: http://spring-ai-neo4j-graph:8082
         routes:
           - name: spring-neo4j-graph-route
             paths:

@@ -22,6 +22,32 @@ plugins:
       credentials: true
       max_age: 3600
 
+upstreams:
+  - name: spring-neo4j-graph-upstream
+    algorithm: round-robin
+    healthchecks:
+      active:
+        type: http
+        http_path: /actuator/health
+        healthy:
+          interval: 10
+          successes: 2
+        unhealthy:
+          interval: 5
+          http_failures: 3
+          tcp_failures: 3
+          timeouts: 3
+      passive:
+        healthy:
+          successes: 2
+        unhealthy:
+          http_failures: 5
+          tcp_failures: 3
+          timeouts: 3
+    targets:
+      - target: spring-ai-neo4j-graph:9000
+        weight: 100
+
 services:
   - name: spring-agentic
     url: http://spring-ai-agentic:9000
@@ -32,7 +58,13 @@ services:
         strip_path: true
 
   - name: spring-neo4j-graph
-    url: http://spring-ai-neo4j-graph:9000
+    host: spring-neo4j-graph-upstream
+    protocol: http
+    port: 80
+    retries: 5
+    connect_timeout: 120000
+    write_timeout: 120000
+    read_timeout: 180000
     routes:
       - name: spring-neo4j-graph-route
         paths:
