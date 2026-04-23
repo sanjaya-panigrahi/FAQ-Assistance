@@ -44,7 +44,7 @@ class HierarchicalPipeline:
             collection_name=collection,
             embedding_function=embeddings,
         )
-        docs = vector_store.similarity_search(query, k=4)
+        docs = vector_store.similarity_search(query, k=6)
         if not docs:
             return RagResponse(
                 answer=NO_CONTEXT_ANSWER,

@@ -91,7 +91,7 @@ class AgenticPipeline:
             client = chromadb.HttpClient(host=settings.chroma_host, port=settings.chroma_port)
             embeddings = OpenAIEmbeddings(model=settings.openai_embedding_model)
             intent = self._intent_matcher.match(question)
-            top_k = 8 if intent.name == "product_availability" else 4
+            top_k = 8 if intent.name == "product_availability" else 6
             vector_store = Chroma(
                 client=client,
                 collection_name=collection_name,
@@ -156,7 +156,15 @@ class AgenticPipeline:
         )
 
         agent = create_openai_tools_agent(llm, [retriever_tool, extract_faq_answer], prompt)
-        executor = AgentExecutor(agent=agent, tools=[retriever_tool, extract_faq_answer], verbose=False)
+        executor = AgentExecutor(
+            agent=agent,
+            tools=[retriever_tool, extract_faq_answer],
+            verbose=False,
+            max_iterations=5,
+            max_execution_time=30,
+            handle_parsing_errors=True,
+            early_stopping_method="generate",
+        )
         result = executor.invoke({"input": question})
 
         return RagResponse(

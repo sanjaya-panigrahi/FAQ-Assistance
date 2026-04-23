@@ -42,10 +42,10 @@ class CorrectivePipeline:
             embedding_function=embeddings,
         )
 
-        docs = vector_store.similarity_search(question, k=4)
+        docs = vector_store.similarity_search(question, k=6)
         if len(docs) < 2:
             retry_query = f"{question} return policy warranty shipping payment support"
-            docs = vector_store.similarity_search(retry_query, k=4)
+            docs = vector_store.similarity_search(retry_query, k=6)
             quality = "weak-retried"
         else:
             quality = "good"
@@ -62,7 +62,7 @@ class CorrectivePipeline:
         
         # Try structured extraction using pattern registry
         registry = get_registry()
-        structured_answer = registry.extract_faq_answer(question, combined_context)
+        structured_answer = registry.extract_faq_answer(question, context)
         if structured_answer and "No structured answer" not in structured_answer:
             return RagResponse(
                 answer=structured_answer,

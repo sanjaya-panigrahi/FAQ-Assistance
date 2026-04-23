@@ -41,7 +41,7 @@ class CorrectivePipeline:
             collection_name=collection,
             embedding_function=embeddings,
         )
-        docs = vector_store.similarity_search(question, k=4)
+        docs = vector_store.similarity_search(question, k=6)
 
         llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
         if not docs:

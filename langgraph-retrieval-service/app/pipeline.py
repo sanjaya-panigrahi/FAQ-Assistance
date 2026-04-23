@@ -201,7 +201,7 @@ class RetrievalPipeline:
 
         for candidate in candidate_map.values():
             candidate["rerank_score"] = 0.7 * candidate["vector_score"] + 0.3 * candidate["lexical_score"]
-            if candidate["vector_score"] >= request.similarityThreshold or candidate["lexical_score"] >= 0.2:
+            if candidate["vector_score"] >= request.similarityThreshold or candidate["lexical_score"] >= 0.15:
                 ranked.append(candidate)
 
         ranked.sort(key=lambda item: item["rerank_score"], reverse=True)
@@ -228,7 +228,7 @@ class RetrievalPipeline:
             [
                 (
                     "system",
-                    f"You are a support assistant for {customer_label}. Answer only with facts present in the provided context. If context is insufficient, explicitly say you do not know.",
+                    f"You are a support assistant for {customer_label}. Answer using facts from the provided context. If a general policy applies to the asked product type, apply it directly. Do not add caveats that are not in the context.",
                 ),
                 (
                     "human",

@@ -7,7 +7,7 @@ class RetrievalQueryRequest(BaseModel):
     tenantId: str = Field(default="default", alias="tenant_id")
     question: str = Field(..., min_length=2)
     queryContext: str | None = Field(default=None, alias="query_context")
-    topK: int = Field(default=4, ge=1, le=20, alias="top_k")
+    topK: int = Field(default=6, ge=1, le=20, alias="top_k")
     similarityThreshold: float = Field(default=0.35, ge=0.0, le=1.0, alias="similarity_threshold")
 
 

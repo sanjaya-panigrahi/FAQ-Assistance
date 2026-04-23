@@ -95,7 +95,7 @@ class GraphPipeline:
             collection_name=collection,
             embedding_function=embeddings,
         )
-        vector_docs = vector_store.similarity_search(question, k=4)
+        vector_docs = vector_store.similarity_search(question, k=6)
         vector_context = "\n\n".join(doc.page_content for doc in vector_docs)
 
         rows = []

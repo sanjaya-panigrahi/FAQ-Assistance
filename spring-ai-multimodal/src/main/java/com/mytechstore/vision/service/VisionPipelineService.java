@@ -51,6 +51,7 @@ public class VisionPipelineService {
     private final FAQPatternRegistry patternRegistry = new FAQPatternRegistry();
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final WebClient webClient;
+    private final int defaultTopK;
 
     public VisionPipelineService(VectorStore vectorStore,
                                  ChatClient chatClient,
@@ -58,6 +59,7 @@ public class VisionPipelineService {
                                  EmbeddingModel embeddingModel,
                                  @Value("${chroma.url:http://chroma-faq:8000}") String chromaUrl,
                                  @Value("${chroma.collection-prefix:faq_}") String collectionPrefix,
+                                 @Value("${retrieval.top-k:6}") int defaultTopK,
                                  WebClient webClient) {
         this.vectorStore = vectorStore;
         this.chatClient = chatClient;
@@ -65,6 +67,7 @@ public class VisionPipelineService {
         this.embeddingModel = embeddingModel;
         this.chromaUrl = chromaUrl;
         this.collectionPrefix = collectionPrefix;
+        this.defaultTopK = defaultTopK;
         this.webClient = webClient;
     }
 
@@ -79,7 +82,7 @@ public class VisionPipelineService {
 
     @Cacheable(value = "multimodalAnswers", key = "(#customerId == null ? 'default' : #customerId) + ':' + #question + ':' + (#imageDescription == null ? '' : #imageDescription)")
     public VisionRagResponse ask(String question, String imageDescription, String customerId) {
-        List<String> chromaChunks = queryChroma(customerId, question, 4);
+        List<String> chromaChunks = queryChroma(customerId, question, defaultTopK);
         String context;
         int chunksUsed;
         if (!chromaChunks.isEmpty()) {
@@ -89,7 +92,7 @@ public class VisionPipelineService {
             if (!indexed.get()) {
                 rebuildIndex();
             }
-            List<Document> hits = retrieveRelevantDocuments(question, 4);
+            List<Document> hits = retrieveRelevantDocuments(question, defaultTopK);
             context = hits.stream().map(Document::getText).collect(Collectors.joining("\n\n"));
             chunksUsed = hits.size();
         }
@@ -98,7 +101,7 @@ public class VisionPipelineService {
         String structuredAnswer = patternRegistry.extractFaqAnswer(question, context);
         if ("return_policy".equals(patternId) && structuredAnswer == null) {
             List<String> policyChunks = queryChroma(customerId,
-                    "What is your return policy? returns unopened items defective items", 4);
+                    "What is your return policy? returns unopened items defective items", defaultTopK);
             if (!policyChunks.isEmpty()) {
                 LinkedHashSet<String> mergedChunks = new LinkedHashSet<>();
                 mergedChunks.addAll(chromaChunks);

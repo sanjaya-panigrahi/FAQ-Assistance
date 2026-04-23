@@ -44,7 +44,7 @@ class MultimodalPipeline:
 
         use_image_branch = bool((image_description or "").strip())
         query = f"{question} {image_description}".strip() if use_image_branch else question
-        docs = vector_store.similarity_search(query, k=4)
+        docs = vector_store.similarity_search(query, k=6)
         if not docs:
             return VisionRagResponse(
                 answer=NO_CONTEXT_ANSWER,

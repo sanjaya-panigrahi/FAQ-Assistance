@@ -52,6 +52,7 @@ public class GraphPipelineService {
         private final String collectionPrefix;
         private final ObjectMapper objectMapper = new ObjectMapper();
         private final WebClient webClient;
+        private final int defaultTopK;
 
     public GraphPipelineService(VectorStore vectorStore,
                                 Neo4jClient neo4jClient,
@@ -60,6 +61,7 @@ public class GraphPipelineService {
                                                         EmbeddingModel embeddingModel,
                                                         @Value("${chroma.url:http://chroma-faq:8000}") String chromaUrl,
                                                         @Value("${chroma.collection-prefix:faq_}") String collectionPrefix,
+                                                        @Value("${retrieval.top-k:6}") int defaultTopK,
                                                         WebClient webClient) {
         this.vectorStore = vectorStore;
         this.neo4jClient = neo4jClient;
@@ -68,6 +70,7 @@ public class GraphPipelineService {
                 this.embeddingModel = embeddingModel;
                 this.chromaUrl = chromaUrl;
                 this.collectionPrefix = collectionPrefix;
+                this.defaultTopK = defaultTopK;
            this.webClient = webClient;
     }
 
@@ -107,7 +110,7 @@ public class GraphPipelineService {
 
         @Cacheable(value = "graphAnswers", key = "#customerId + ':' + #question")
         public RagResponse ask(String question, String customerId) {
-                List<String> chromaChunks = queryChroma(customerId, question, 4);
+                List<String> chromaChunks = queryChroma(customerId, question, defaultTopK);
                 String vectorContext;
                 int vectorCount;
                 if (!chromaChunks.isEmpty()) {
@@ -118,7 +121,7 @@ public class GraphPipelineService {
                                 rebuildIndex();
                         }
                         List<Document> vectorHits = vectorStore.similaritySearch(
-                                        SearchRequest.builder().query(expandQuery(question)).topK(4).build());
+                                        SearchRequest.builder().query(expandQuery(question)).topK(defaultTopK).build());
                         vectorContext = vectorHits.stream().map(Document::getText).collect(Collectors.joining("\n\n"));
                         vectorCount = vectorHits.size();
                 }

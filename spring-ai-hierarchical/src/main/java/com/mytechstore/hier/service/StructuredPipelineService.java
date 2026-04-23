@@ -66,6 +66,7 @@ public class StructuredPipelineService {
     private final FAQPatternRegistry patternRegistry = new FAQPatternRegistry();
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final WebClient webClient;
+    private final int defaultTopK;
 
     public StructuredPipelineService(VectorStore vectorStore,
                                      ChatClient chatClient,
@@ -73,6 +74,7 @@ public class StructuredPipelineService {
                                      EmbeddingModel embeddingModel,
                                      @Value("${chroma.url:http://chroma-faq:8000}") String chromaUrl,
                                      @Value("${chroma.collection-prefix:faq_}") String collectionPrefix,
+                                     @Value("${retrieval.top-k:6}") int defaultTopK,
                                      WebClient webClient) {
         this.vectorStore = vectorStore;
         this.chatClient = chatClient;
@@ -80,6 +82,7 @@ public class StructuredPipelineService {
         this.embeddingModel = embeddingModel;
         this.chromaUrl = chromaUrl;
         this.collectionPrefix = collectionPrefix;
+        this.defaultTopK = defaultTopK;
         this.webClient = webClient;
     }
 
@@ -106,7 +109,7 @@ public class StructuredPipelineService {
         String selectedSection = selectSection(question);
         String enrichedQuery = question + " " + selectedSection;
 
-        List<String> chromaChunks = queryChroma(customerId, enrichedQuery, 4);
+        List<String> chromaChunks = queryChroma(customerId, enrichedQuery, defaultTopK);
         String context;
         int chunksUsed;
         if (!chromaChunks.isEmpty()) {
@@ -114,7 +117,7 @@ public class StructuredPipelineService {
             chunksUsed = chromaChunks.size();
         } else {
             awaitIndexReady();
-            List<Document> hits = retrieveRelevantDocuments(enrichedQuery, 4);
+            List<Document> hits = retrieveRelevantDocuments(enrichedQuery, defaultTopK);
             context = hits.stream().map(Document::getText).collect(Collectors.joining("\n\n"));
             chunksUsed = hits.size();
         }
@@ -123,7 +126,7 @@ public class StructuredPipelineService {
         String structuredAnswer = patternRegistry.extractFaqAnswer(question, context);
         if ("return_policy".equals(patternId) && structuredAnswer == null) {
             List<String> policyChunks = queryChroma(customerId,
-                    "What is your return policy? returns unopened items defective items Returns and Refunds", 4);
+                    "What is your return policy? returns unopened items defective items Returns and Refunds", defaultTopK);
             if (!policyChunks.isEmpty()) {
                 LinkedHashSet<String> mergedChunks = new LinkedHashSet<>();
                 mergedChunks.addAll(chromaChunks);

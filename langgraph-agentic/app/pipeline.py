@@ -76,7 +76,7 @@ class AgenticPipeline:
         query_payload = self._query_collection(
             collection_id=collection_id,
             query_embedding=query_embedding,
-            top_k=4,
+            top_k=6,
         )
         docs = self._extract_documents(query_payload)
         context = "\n\n".join(doc["content"] for doc in docs)

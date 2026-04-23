@@ -43,7 +43,7 @@ class MultimodalPipeline:
         )
 
         query = f"{question} {image_description}".strip() if image_description else question
-        docs = vector_store.similarity_search(query, k=4)
+        docs = vector_store.similarity_search(query, k=6)
         if not docs:
             return VisionRagResponse(
                 answer=NO_CONTEXT_ANSWER,

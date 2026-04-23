@@ -80,7 +80,7 @@ public class AgenticPipelineService {
     @Cacheable(value = "agenticAnswers", key = "#customerId + ':' + #question")
     public RagResponse ask(String question, String customerId) {
         // Agent-style orchestration: planner step chooses how broad retrieval should be.
-        int topK = question.toLowerCase().contains("compare") ? 6 : 4;
+        int topK = question.toLowerCase().contains("compare") ? Math.max(defaultTopK, 8) : defaultTopK;
         String retrievalQuery = expandQuery(question);
 
         List<String> chromaChunks = queryChroma(customerId, retrievalQuery, topK);

@@ -78,7 +78,7 @@ app:
 
   # RAG Configuration
   rag:
-    top-k-results: 5
+    top-k-results: 6
     similarity-threshold: 0.5
     enable-reranking: false
 
