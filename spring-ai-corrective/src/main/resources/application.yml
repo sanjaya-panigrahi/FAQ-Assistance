@@ -7,7 +7,7 @@ spring:
   cache:
     type: redis
     redis:
-      time-to-live: 1800000
+      time-to-live: 400000
       key-prefix: "corrective-rag:"
   data:
     redis:

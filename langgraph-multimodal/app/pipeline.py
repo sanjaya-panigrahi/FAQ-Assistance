@@ -1,16 +1,10 @@
 import chromadb
-import sys
-from pathlib import Path
 
 from langchain_chroma import Chroma
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
 from .config import settings
 from .schemas import VisionRagResponse
-
-# Add shared-patterns to path for pattern registry import
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "shared-patterns"))
-from faq_pattern_registry import get_registry
 
 
 NO_CONTEXT_ANSWER = (
@@ -54,17 +48,8 @@ class MultimodalPipeline:
             )
         context = "\n\n".join(doc.page_content for doc in docs)
 
-        
-        # Try structured extraction using pattern registry
-        registry = get_registry()
-        structured_answer = registry.extract_faq_answer(question, combined_context)
-        if structured_answer and "No structured answer" not in structured_answer:
-            return VisionRagResponse(
-                answer=structured_answer,
-                chunksUsed=len(docs),
-                strategy="pattern-registry+structured-extraction",
-                orchestrationStrategy="langgraph-multimodal-branching",
-            )
+        llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
+        answer = llm.invoke(
             (
                 "You are a multimodal FAQ assistant. Use image hints only when present; otherwise rely on FAQ context. "
                 "If the context contains a general policy (e.g. return policy, warranty), apply it directly to the specific product the user asks about. "
@@ -84,8 +69,4 @@ class MultimodalPipeline:
             orchestrationStrategy="langgraph-multimodal-branching",
         )
 
-    @staticmethod
-    def _extract_deterministic_return_policy(question: str, context: str) -> str | None:
-        q = (question or "").lower()
-        if "return" not in q or "policy" not in q:
-        return VisionRagResponse(
+pipeline = MultimodalPipeline()

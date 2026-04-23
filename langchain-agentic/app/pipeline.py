@@ -32,29 +32,9 @@ def _expand_retrieval_query(question: str, intent_name: str = "general") -> str:
         extras.append("warranty extended warranty accidental damage protection repair coverage")
     if intent_name == "logistics" or ("delivery" in q or "shipping" in q):
         extras.append("shipping delivery tracking express same-day order status")
+    if intent_name == "payment" or ("payment" in q or "pay" in q or "emi" in q or "installment" in q or "cod" in q):
+        extras.append("payment modes payment options EMI installment cash on delivery store credit")
     return " ".join([question, *extras]).strip()
-
-
-def _extract_product_availability_answer(question: str, context: str) -> str | None:
-    q = (question or "").lower()
-    c = (context or "").lower()
-    is_product_availability = (
-        ("product" in q or "products" in q)
-        and ("refurb" in q or "new" in q or "used" in q or "pre-owned" in q)
-    )
-    if not is_product_availability:
-        return None
-
-    has_availability_fact = "new products" in c and "refurbished" in c
-    has_warranty_fact = "minimum 6-month warranty" in c or "6-month warranty" in c
-    if has_availability_fact and has_warranty_fact:
-        return (
-            "We sell both new products and refurbished products. "
-            "Refurbished devices are certified, tested, and include a minimum 6-month warranty."
-        )
-    if has_availability_fact:
-        return "We sell both new products and refurbished products."
-    return None
 
 
 # Create extraction tool using pattern registry
@@ -112,26 +92,6 @@ class AgenticPipeline:
             )
 
         combined_context = "\n\n".join(doc.page_content for doc in docs)
-        
-        # Try structured extraction using pattern registry
-        registry = get_registry()
-        structured_answer = registry.extract_faq_answer(question, combined_context)
-        if structured_answer and "No structured answer" not in structured_answer:
-            return RagResponse(
-                answer=structured_answer,
-                chunksUsed=len(docs),
-                strategy="pattern-registry+structured-extraction",
-                orchestrationStrategy="langchain-agent",
-            )
-
-        deterministic_answer = _extract_product_availability_answer(question, combined_context)
-        if deterministic_answer:
-            return RagResponse(
-                answer=deterministic_answer,
-                chunksUsed=len(docs),
-                strategy=f"semantic-intent+deterministic-extraction:{intent.name}",
-                orchestrationStrategy="langchain-agent",
-            )
 
         customer_label = (customer_id or "the company").strip()
         llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)

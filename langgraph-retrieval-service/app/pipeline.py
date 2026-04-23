@@ -198,11 +198,17 @@ class RetrievalPipeline:
         request = state["request"]
         candidate_map = state.get("candidates", {})
         ranked: list[dict] = []
+        all_candidates: list[dict] = []
 
         for candidate in candidate_map.values():
             candidate["rerank_score"] = 0.7 * candidate["vector_score"] + 0.3 * candidate["lexical_score"]
+            all_candidates.append(candidate)
             if candidate["vector_score"] >= request.similarityThreshold or candidate["lexical_score"] >= 0.15:
                 ranked.append(candidate)
+
+        if not ranked:
+            all_candidates.sort(key=lambda item: item["rerank_score"], reverse=True)
+            return {"ranked_chunks": all_candidates[: request.topK]}
 
         ranked.sort(key=lambda item: item["rerank_score"], reverse=True)
         return {"ranked_chunks": ranked[: request.topK]}

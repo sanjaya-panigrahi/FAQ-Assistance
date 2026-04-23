@@ -173,10 +173,16 @@ class RetrievalPipeline:
             )
 
         ranked: list[dict] = []
+        all_candidates: list[dict] = []
         for candidate in candidate_map.values():
             candidate["rerank_score"] = 0.7 * candidate["vector_score"] + 0.3 * candidate["lexical_score"]
+            all_candidates.append(candidate)
             if candidate["vector_score"] >= similarity_threshold or candidate["lexical_score"] >= 0.2:
                 ranked.append(candidate)
+
+        if not ranked:
+            all_candidates.sort(key=lambda item: item["rerank_score"], reverse=True)
+            return all_candidates[:top_k]
 
         ranked.sort(key=lambda item: item["rerank_score"], reverse=True)
         return ranked[:top_k]
@@ -199,7 +205,10 @@ class RetrievalPipeline:
         prompt = [
             (
                 "system",
-                f"You are a support assistant for {customer_label}. Answer only with facts present in the provided context. If context is insufficient, explicitly say you do not know.",
+                f"You are a support assistant for {customer_label}. Answer using ONLY facts from the provided context. "
+                "If the context contains a general policy (e.g. return policy, warranty), apply it directly to the specific product the user asks about. "
+                "Do not say the information is missing if a general policy covers it. "
+                "Do not invent facts or add caveats not in the context.",
             ),
             (
                 "human",

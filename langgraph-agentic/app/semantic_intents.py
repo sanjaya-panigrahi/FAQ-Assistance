@@ -33,6 +33,12 @@ class SemanticIntentMatcher:
             "same day dispatch options",
             "express delivery availability",
         ],
+        "payment": [
+            "what payment methods do you accept",
+            "payment modes available",
+            "EMI and installment options",
+            "cash on delivery available",
+        ],
         "general": [
             "tell me about mytechstore",
             "what products do you have",

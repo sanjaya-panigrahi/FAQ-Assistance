@@ -111,35 +111,6 @@ public class GuardrailPipelineService {
             chunksUsed = hits.size();
         }
 
-        String patternId = patternRegistry.classifyQuestion(question);
-        String structuredAnswer = patternRegistry.extractFaqAnswer(question, context);
-        if ("return_policy".equals(patternId) && structuredAnswer == null) {
-            List<String> policyChunks = queryChroma(customerId,
-                    "What is your return policy? returns unopened items defective items", defaultTopK);
-            if (!policyChunks.isEmpty()) {
-                LinkedHashSet<String> mergedChunks = new LinkedHashSet<>();
-                mergedChunks.addAll(chromaChunks);
-                mergedChunks.addAll(policyChunks);
-                context = String.join("\n\n", mergedChunks);
-                chunksUsed = Math.max(chunksUsed, mergedChunks.size());
-                structuredAnswer = patternRegistry.extractFaqAnswer(question, context);
-            }
-        }
-
-        if (structuredAnswer == null && patternId != null) {
-            if (faqEntries.isEmpty()) {
-                faqEntries = parseFaqDocuments();
-            }
-            structuredAnswer = patternRegistry.extractFaqAnswer(
-                    question,
-                    faqEntries.stream().map(Document::getText).collect(Collectors.joining("\n\n"))
-            );
-        }
-        if (structuredAnswer != null && !structuredAnswer.isBlank()) {
-            return new RagResponse(structuredAnswer, false, "ok", chunksUsed,
-                    "pattern-registry+structured-extraction", "springai-advisors-guardrails");
-        }
-
         if (context.isBlank()) {
             return new RagResponse("I do not have enough FAQ context to answer this safely.", false,
                     "low-retrieval-confidence", 0, "springai-advisors-guardrails-local",

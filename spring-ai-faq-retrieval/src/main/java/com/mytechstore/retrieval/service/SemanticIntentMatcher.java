@@ -125,6 +125,9 @@ class SemanticIntentMatcher {
         if (q.contains("shipping") || q.contains("delivery") || q.contains("track") || q.contains("dispatch")) {
             return new IntentMatch("logistics", 0.0);
         }
+        if (q.contains("payment") || q.contains("pay") || q.contains("emi") || q.contains("installment") || q.contains("cod")) {
+            return new IntentMatch("payment", 0.0);
+        }
         return new IntentMatch("general", 0.0);
     }
 
@@ -155,6 +158,16 @@ class SemanticIntentMatcher {
                 "how long does delivery take",
                 "track my shipment",
                 "dispatch and delivery options"
+            )
+        );
+        map.put(
+            "payment",
+            List.of(
+                "what payment methods do you accept",
+                "payment modes available",
+                "EMI and installment options",
+                "credit card debit card payment",
+                "cash on delivery available"
             )
         );
         map.put(

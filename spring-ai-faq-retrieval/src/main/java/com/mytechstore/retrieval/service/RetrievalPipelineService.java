@@ -298,6 +298,13 @@ public class RetrievalPipelineService {
             expansions.add("warranty coverage");
             expansions.add("replacement process");
         }
+        if ("payment".equals(intentName) || q.contains("payment") || q.contains("pay") || q.contains("emi") || q.contains("installment") || q.contains("cod")) {
+            expansions.add("payment modes");
+            expansions.add("payment options");
+            expansions.add("EMI installment");
+            expansions.add("cash on delivery");
+            expansions.add("store credit");
+        }
 
         String transformed = question;
         if (!expansions.isEmpty()) {
@@ -400,11 +407,6 @@ public class RetrievalPipelineService {
             return "No relevant information found for this tenant knowledge base.";
         }
 
-        String deterministicAnswer = extractProductAvailabilityAnswer(question, chunks);
-        if (deterministicAnswer != null) {
-            return deterministicAnswer;
-        }
-
         StringBuilder context = new StringBuilder();
         for (ChunkCandidate chunk : chunks) {
             String src = chunk.source == null ? "unknown-source" : chunk.source;
@@ -415,8 +417,10 @@ public class RetrievalPipelineService {
                 .append("\n\n");
         }
 
-        String prompt = "You are a grounded FAQ assistant. Use only the context. Cite evidence tags like [1], [2]. "
-            + "If context is insufficient, say so clearly.\n\n"
+        String prompt = "You are a support assistant for a tech store. Answer using ONLY facts from the provided context. "
+            + "If the context contains a general policy (e.g. return policy, payment modes, warranty), apply it directly to the specific product the user asks about. "
+            + "Do not say the information is missing if a general policy covers it. "
+            + "Cite evidence as [1], [2]. Do not invent facts or add caveats not in the context.\n\n"
             + "Question: " + question + "\n\n"
             + "Context:\n" + context;
 

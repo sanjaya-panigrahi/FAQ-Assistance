@@ -1,16 +1,10 @@
 import chromadb
-import sys
-from pathlib import Path
 
 from langchain_chroma import Chroma
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
 from .config import settings
 from .schemas import RagResponse
-
-# Add shared-patterns to path for pattern registry import
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "shared-patterns"))
-from faq_pattern_registry import get_registry
 
 
 NO_CONTEXT_ANSWER = (
@@ -55,18 +49,7 @@ class HierarchicalPipeline:
             )
         context = "\n\n".join(doc.page_content for doc in docs)
 
-        
-        # Try structured extraction using pattern registry
-        registry = get_registry()
-        structured_answer = registry.extract_faq_answer(question, combined_context)
-        if structured_answer and "No structured answer" not in structured_answer:
-            return RagResponse(
-                answer=structured_answer,
-                chunksUsed=len(docs),
-                strategy="pattern-registry+structured-extraction",
-                orchestrationStrategy="langchain-hierarchical-retrieval",
-                selectedSection=section,
-            )
+        llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
         customer_label = (tenant or "the company").strip()
         answer = llm.invoke(
             (

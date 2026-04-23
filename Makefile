@@ -79,7 +79,7 @@ up-all: check-tools setup-env spring-up langchain-up langgraph-up
 up-all-limited:
 	@echo "Starting all stacks with resource limits..."
 	@$(MAKE) check-tools setup-env
-	docker compose -f docker-compose.master.yml -f docker-compose.resources.yml -f docker-compose.kong.yml up -d --remove-orphans
+	docker compose -f docker-compose.master.yml -f docker-compose.resources.yml -f docker-compose.kong.yml up -d --build --remove-orphans
 	@echo "✓ All stacks running with memory/CPU limits"
 
 ui-refresh:

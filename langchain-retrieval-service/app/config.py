@@ -12,7 +12,7 @@ class Settings:
     chroma_collection_prefix: str = os.getenv("APP_CHROMA_COLLECTION_NAME_PREFIX", "faq_")
     redis_host: str = os.getenv("REDIS_HOST", "redis-cache")
     redis_port: int = int(os.getenv("REDIS_PORT", "6379"))
-    redis_ttl_seconds: int = int(os.getenv("RETRIEVAL_CACHE_TTL_SECONDS", "900"))
+    redis_ttl_seconds: int = int(os.getenv("RETRIEVAL_CACHE_TTL_SECONDS", "400"))
 
 
 settings = Settings()

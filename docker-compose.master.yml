@@ -143,6 +143,8 @@ services:
     depends_on:
       neo4j-unified:
         condition: service_healthy
+      chroma-faq:
+        condition: service_healthy
     volumes:
       - ./shared-data:/opt/data:ro
     networks:
@@ -267,6 +269,8 @@ services:
       NEO4J_URI: bolt://neo4j-unified:7687
     depends_on:
       neo4j-unified:
+        condition: service_healthy
+      chroma-faq:
         condition: service_healthy
     volumes:
       - ./shared-data:/opt/data:ro

@@ -51,13 +51,14 @@ public class AgenticPipelineService {
     private final FAQPatternRegistry patternRegistry = new FAQPatternRegistry();
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final WebClient webClient;
-
+    private final int defaultTopK;
 
     public AgenticPipelineService(VectorStore vectorStore, ChatClient chatClient,
                                   @Value("${faq.source-file}") String sourceFile,
                                   EmbeddingModel embeddingModel,
                                   @Value("${chroma.url:http://chroma-faq:8000}") String chromaUrl,
                                   @Value("${chroma.collection-prefix:faq_}") String collectionPrefix,
+                                  @Value("${retrieval.top-k:6}") int defaultTopK,
                                   WebClient webClient) {
         this.vectorStore = vectorStore;
         this.chatClient = chatClient;
@@ -65,6 +66,7 @@ public class AgenticPipelineService {
         this.embeddingModel = embeddingModel;
         this.chromaUrl = chromaUrl;
         this.collectionPrefix = collectionPrefix;
+        this.defaultTopK = defaultTopK;
         this.webClient = webClient;
     }
 
@@ -98,47 +100,11 @@ public class AgenticPipelineService {
             chunksUsed = retrieved.size();
         }
 
-        String patternId = patternRegistry.classifyQuestion(question);
-        String structuredAnswer = patternRegistry.extractFaqAnswer(question, context);
-        if ("return_policy".equals(patternId) && structuredAnswer == null) {
-            List<String> policyChunks = queryChroma(
-                customerId,
-                "What is your return policy? returns unopened items defective items",
-                topK
-            );
-            if (!policyChunks.isEmpty()) {
-                LinkedHashSet<String> mergedChunks = new LinkedHashSet<>();
-                mergedChunks.addAll(chromaChunks);
-                mergedChunks.addAll(policyChunks);
-                context = String.join("\n\n", mergedChunks);
-                chunksUsed = Math.max(chunksUsed, mergedChunks.size());
-                structuredAnswer = patternRegistry.extractFaqAnswer(question, context);
-            }
-        }
-
-        if (structuredAnswer == null && patternId != null) {
-            if (faqEntries.isEmpty()) {
-                faqEntries = parseFaqDocuments();
-            }
-            structuredAnswer = patternRegistry.extractFaqAnswer(
-                question,
-                faqEntries.stream().map(Document::getText).collect(Collectors.joining("\n\n"))
-            );
-        }
-        if (structuredAnswer != null && !structuredAnswer.isBlank()) {
-            return new RagResponse(
-                structuredAnswer,
-                "pattern-registry+structured-extraction",
-                chunksUsed,
-                "springai-agent-orchestration"
-            );
-        }
-
         String customerLabel = (customerId != null && !customerId.isBlank()) ? customerId.trim() : "the company";
-        String prompt = "You are FAQ assistant for " + customerLabel + ". Use only the context. "
-            + "If the context contains a general policy that applies to the question, answer with that policy directly. "
-            + "Do not add generic caveats such as 'check product page' unless that caveat is explicitly stated in the context. "
-            + "If context is missing, say you do not have enough policy data.\n\n"
+        String prompt = "You are a support assistant for " + customerLabel + ". Answer using ONLY facts from the provided context. "
+            + "If the context contains a general policy (e.g. return policy, payment modes, warranty), apply it directly to the specific product the user asks about. "
+            + "Do not say the information is missing if a general policy covers it. "
+            + "Do not invent facts or add caveats not present in the context.\n\n"
                 + "Context:\n" + context + "\n\nQuestion: " + question;
 
         String answer = chatClient.prompt().user(prompt).call().content();
@@ -316,6 +282,9 @@ public class AgenticPipelineService {
         }
         if (normalized.contains("delivery") || normalized.contains("shipping")) {
             parts.add("shipping delivery tracking express same-day order status");
+        }
+        if (normalized.contains("payment") || normalized.contains("pay") || normalized.contains("emi") || normalized.contains("installment") || normalized.contains("cod")) {
+            parts.add("payment modes payment options EMI installment cash on delivery store credit");
         }
 
         return String.join(" ", parts);
