@@ -68,8 +68,9 @@ class MultimodalPipeline:
         llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
         prompt = (
             "You are a multimodal-style support assistant. Use FAQ context and optional image hints. "
-            "If a general policy is present, apply it directly to the asked product type. "
-            "Do not invent policy windows or generic caveats unless they appear in context.\n\n"
+            "If the context contains a general policy (e.g. return policy, warranty), apply it directly to the specific product the user asks about. "
+            "Do not say the information is missing if a general policy covers it. "
+            "Do not invent facts or add caveats not present in the context.\n\n"
             f"Question: {question}\n\n"
             f"Image Signals: {image_description or 'No image context provided'}\n\n"
             f"FAQ Context:\n{context}"

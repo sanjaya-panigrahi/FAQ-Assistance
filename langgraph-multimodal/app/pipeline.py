@@ -67,8 +67,9 @@ class MultimodalPipeline:
             )
             (
                 "You are a multimodal FAQ assistant. Use image hints only when present; otherwise rely on FAQ context. "
-                "If a general policy is present, apply it directly to the asked product type. "
-                "Do not invent policy windows or generic caveats unless they appear in context.\n\n"
+                "If the context contains a general policy (e.g. return policy, warranty), apply it directly to the specific product the user asks about. "
+                "Do not say the information is missing if a general policy covers it. "
+                "Do not invent facts or add caveats not present in the context.\n\n"
                 f"Image Branch: {use_image_branch}\n"
                 f"Question: {question}\n"
                 f"Image Signals: {image_description or 'none'}\n\n"

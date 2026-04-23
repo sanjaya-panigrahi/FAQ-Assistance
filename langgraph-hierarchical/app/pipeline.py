@@ -67,8 +67,9 @@ class HierarchicalPipeline:
                 orchestrationStrategy="langgraph-hierarchy-multistep",
                 selectedSection=section,
             )
-                "If context provides a general policy and no product-specific exception, use the general policy. "
-                "Do not invent policy windows or generic caveats unless they appear in context.\n\n"
+                "If the context contains a general policy (e.g. return policy, warranty), apply it directly to the specific product the user asks about. "
+                "Do not say the information is missing if a general policy covers it. "
+                "Do not invent facts or add caveats not present in the context.\n\n"
                 f"Section selected: {selected_section}\n"
                 f"Question: {question}\n\n"
                 f"FAQ Context:\n{context}"

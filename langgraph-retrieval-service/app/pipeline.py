@@ -228,7 +228,10 @@ class RetrievalPipeline:
             [
                 (
                     "system",
-                    f"You are a support assistant for {customer_label}. Answer using facts from the provided context. If a general policy applies to the asked product type, apply it directly. Do not add caveats that are not in the context.",
+                    f"You are a support assistant for {customer_label}. Answer using ONLY facts from the provided context. "
+                    "If the context contains a general policy (e.g. return policy, warranty), apply it directly to the specific product the user asks about. "
+                    "Do not say the information is missing if a general policy covers it. "
+                    "Do not invent facts or add caveats not in the context.",
                 ),
                 (
                     "human",

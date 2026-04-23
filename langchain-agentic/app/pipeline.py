@@ -134,43 +134,65 @@ class AgenticPipeline:
             )
 
         customer_label = (customer_id or "the company").strip()
-        retriever_tool = create_retriever_tool(
-            retriever,
-            "faq_retriever",
-            f"Use this tool to retrieve answers from {customer_label} FAQ knowledge base.",
-        )
-
         llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
+
+        # Direct LLM generation with pre-retrieved context (no agent loop needed)
         prompt = ChatPromptTemplate.from_messages(
             [
                 (
                     "system",
-                    f"You are a support assistant for {customer_label}. Always use the FAQ retrieval tool and answer only from retrieved context. "
-                    "If a general policy is present, apply it directly to the asked product type. "
-                    "Do not invent policy windows or add generic caveats unless those caveats appear in context. "
-                    "When you find relevant context, use the extract_faq_answer tool to structure the response if applicable.",
+                    f"You are a support assistant for {customer_label}. "
+                    "Answer the question using ONLY the FAQ context provided below. "
+                    "If the context contains a general policy (e.g. return policy, warranty), apply it directly to the specific product the user asks about. "
+                    "Do not say the information is missing if a general policy covers it. "
+                    "Do not invent facts or add caveats not present in the context.",
                 ),
-                ("human", "{input}"),
-                MessagesPlaceholder(variable_name="agent_scratchpad"),
+                (
+                    "human",
+                    f"Question: {question}\n\nFAQ Context:\n{combined_context}\n\nProvide a concise, grounded answer.",
+                ),
             ]
         )
+        result = llm.invoke(prompt.format_messages())
+        answer = str(result.content).strip()
 
-        agent = create_openai_tools_agent(llm, [retriever_tool, extract_faq_answer], prompt)
-        executor = AgentExecutor(
-            agent=agent,
-            tools=[retriever_tool, extract_faq_answer],
-            verbose=False,
-            max_iterations=5,
-            max_execution_time=30,
-            handle_parsing_errors=True,
-            early_stopping_method="generate",
-        )
-        result = executor.invoke({"input": question})
+        # If the direct answer is a refusal, fall back to agent with tools
+        if not answer or "do not know" in answer.lower() or "not available" in answer.lower() or "not detailed" in answer.lower():
+            retriever_tool = create_retriever_tool(
+                retriever,
+                "faq_retriever",
+                f"Use this tool to retrieve additional FAQ context from {customer_label} knowledge base.",
+            )
+            agent_prompt = ChatPromptTemplate.from_messages(
+                [
+                    (
+                        "system",
+                        f"You are a support assistant for {customer_label}. "
+                        "Use the faq_retriever tool to find relevant FAQ context, then answer. "
+                        "If a general policy applies to the asked product type, apply it directly. "
+                        "Do not add caveats not in the context.",
+                    ),
+                    ("human", "{input}"),
+                    MessagesPlaceholder(variable_name="agent_scratchpad"),
+                ]
+            )
+            agent = create_openai_tools_agent(llm, [retriever_tool, extract_faq_answer], agent_prompt)
+            executor = AgentExecutor(
+                agent=agent,
+                tools=[retriever_tool, extract_faq_answer],
+                verbose=False,
+                max_iterations=3,
+                max_execution_time=20,
+                handle_parsing_errors=True,
+                early_stopping_method="generate",
+            )
+            agent_result = executor.invoke({"input": question})
+            answer = str(agent_result.get("output", "No answer returned."))
 
         return RagResponse(
-            answer=str(result.get("output", "No answer returned.")),
+            answer=answer,
             chunksUsed=len(docs),
-            strategy=f"chroma-direct+langchain-agent+semantic-intent:{intent.name}",
+            strategy=f"chroma-direct+langchain-llm+semantic-intent:{intent.name}",
             orchestrationStrategy="langchain-agent",
         )
 
