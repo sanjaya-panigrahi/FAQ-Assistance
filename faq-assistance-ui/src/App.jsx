@@ -101,8 +101,9 @@ function App() {
   const [graphTaskFilter, setGraphTaskFilter] = useState("active");
   const [expandedGraphTaskIds, setExpandedGraphTaskIds] = useState(() => new Set());
   const [uploadedFaqName, setUploadedFaqName] = useState("");
-  const [selectedFaqFile, setSelectedFaqFile] = useState(null);
+  const [selectedFaqFiles, setSelectedFaqFiles] = useState([]);
   const [documentManagerOpen, setDocumentManagerOpen] = useState(false);
+  const [faqDragActive, setFaqDragActive] = useState(false);
   const [customerStatus, setCustomerStatus] = useState("Loading customers from the ingestion service...");
   const [faqUploadStatus, setFaqUploadStatus] = useState("");
   const [faqUploadResult, setFaqUploadResult] = useState(null);
@@ -422,7 +423,7 @@ function App() {
   const canAsk = searchEnabled && !loading && !uploadingFaq && hasQuestion;
   const canExport = !loading && hasTranscript;
   const canStartNewConversation = !loading && (hasTranscript || Boolean(error) || Boolean(uploadedFaqName));
-  const canUploadFaq = !loading && !uploadingFaq && Boolean(selectedFaqFile);
+  const canUploadFaq = !loading && !uploadingFaq && selectedFaqFiles.length > 0;
   const canCreateCustomer = !customerBusy && trimmedNewCustomerId.length > 0 && trimmedNewCustomerName.length > 0;
   const primaryActionLabel = loading
     ? mode === "compare"
@@ -1575,7 +1576,7 @@ function App() {
     setTranscript([]);
     setError("");
     setUploadedFaqName("");
-    setSelectedFaqFile(null);
+    setSelectedFaqFiles([]);
     setFaqUploadStatus("");
     setFaqUploadResult(null);
     setCustomerDocuments([]);
@@ -1601,89 +1602,114 @@ function App() {
     URL.revokeObjectURL(downloadUrl);
   }
 
+  const allowedFaqExtensions = ["pdf", "md", "yaml", "yml", "doc", "docx", "txt", "png", "jpg", "jpeg"];
+
+  function validateAndAddFiles(fileList) {
+    const files = Array.from(fileList);
+    const valid = [];
+    const rejected = [];
+    for (const file of files) {
+      const ext = file.name.split(".").pop()?.toLowerCase();
+      if (ext && allowedFaqExtensions.includes(ext)) {
+        valid.push(file);
+      } else {
+        rejected.push(file.name);
+      }
+    }
+    if (rejected.length > 0) {
+      setError(`Unsupported file type(s): ${rejected.join(", ")}`);
+    } else {
+      setError("");
+    }
+    if (valid.length > 0) {
+      setSelectedFaqFiles((prev) => [...prev, ...valid]);
+      setFaqUploadStatus("");
+      setFaqUploadResult(null);
+    }
+  }
+
   function handleFaqSelection(event) {
-    const selectedFile = event.target.files?.[0];
-    if (!selectedFile) {
-      setSelectedFaqFile(null);
-      setUploadedFaqName("");
-      return;
-    }
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+    validateAndAddFiles(files);
+    event.target.value = "";
+  }
 
-    const allowedExtensions = ["pdf", "md", "yaml", "yml", "doc", "docx", "txt", "png", "jpg", "jpeg"];
-    const fileExtension = selectedFile.name.split(".").pop()?.toLowerCase();
+  function handleFaqDrop(event) {
+    event.preventDefault();
+    setFaqDragActive(false);
+    const files = event.dataTransfer.files;
+    if (!files || files.length === 0) return;
+    validateAndAddFiles(files);
+  }
 
-    if (!fileExtension || !allowedExtensions.includes(fileExtension)) {
-      setError("Unsupported FAQ file type. Use PDF, Markdown, YAML, DOC, DOCX, TXT, PNG, JPG, or JPEG.");
-      setSelectedFaqFile(null);
-      setUploadedFaqName("");
-      event.target.value = "";
-      return;
-    }
+  function handleFaqDragOver(event) {
+    event.preventDefault();
+    setFaqDragActive(true);
+  }
 
-    setError("");
-    setFaqUploadStatus("");
-    setFaqUploadResult(null);
-    setSelectedFaqFile(selectedFile);
-    setUploadedFaqName(selectedFile.name);
+  function handleFaqDragLeave() {
+    setFaqDragActive(false);
+  }
+
+  function removeFaqFile(index) {
+    setSelectedFaqFiles((prev) => prev.filter((_, i) => i !== index));
   }
 
   async function handleFaqUpload() {
-    if (!selectedFaqFile || uploadingFaq) {
-      return;
-    }
+    if (selectedFaqFiles.length === 0 || uploadingFaq) return;
 
     setUploadingFaq(true);
     setError("");
-    setFaqUploadStatus(`Uploading ${selectedFaqFile.name} and auto-detecting customer...`);
+    const totalFiles = selectedFaqFiles.length;
+    const results = [];
 
-    try {
-      const formData = new FormData();
-      formData.append("file", selectedFaqFile);
+    for (let i = 0; i < totalFiles; i++) {
+      const file = selectedFaqFiles[i];
+      setFaqUploadStatus(`Uploading ${i + 1}/${totalFiles}: ${file.name}...`);
 
-      const response = await fetch(`${ingestionApiUrl}/documents/upload/auto-customer`, {
-        method: "POST",
-        body: formData,
-      });
-      const data = await parseResponse(response);
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
 
-      if (!response.ok) {
-        throw new Error(data.message || data.processingError || `Upload failed with status ${response.status}`);
-      }
+        const response = await fetch(`${ingestionApiUrl}/documents/upload/auto-customer`, {
+          method: "POST",
+          body: formData,
+        });
+        const data = await parseResponse(response);
 
-      const detectedCustomerId = data.customerId || data.customer?.customerId || "";
-      const detectedCustomerName = data.customerName || data.customer?.name || detectedCustomerId;
-      const documentPayload = data.document || data;
-
-      setFaqUploadResult(documentPayload);
-      setFaqUploadStatus(
-        `Indexed ${documentPayload.originalFileName || selectedFaqFile.name} for ${detectedCustomerName} (${detectedCustomerId || "unknown"}).`
-      );
-      setUploadedFaqName(documentPayload.originalFileName || selectedFaqFile.name);
-
-      if (detectedCustomerId) {
-        setCustomer(detectedCustomerId);
-      }
-
-      graphCustomerDataCacheRef.current.delete(detectedCustomerId || trimmedCustomerId);
-      frameworkOptions.forEach((option) => {
-        if (detectedCustomerId) {
-          graphRebuildCacheRef.current.delete(`${option.value}::${detectedCustomerId}`);
+        if (!response.ok) {
+          throw new Error(data.message || data.processingError || `Upload failed with status ${response.status}`);
         }
-        graphRebuildCacheRef.current.delete(`${option.value}::${trimmedCustomerId}`);
-      });
-      await loadCustomers(detectedCustomerId || customer);
-      await loadCustomerDocuments();
-      setSelectedFaqFile(null);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
+
+        const detectedCustomerId = data.customerId || data.customer?.customerId || "";
+        const detectedCustomerName = data.customerName || data.customer?.name || detectedCustomerId;
+        const documentPayload = data.document || data;
+        results.push({ file: file.name, status: "success", customer: detectedCustomerName, chunks: documentPayload.indexedChunkCount ?? documentPayload.chunkCount ?? 0 });
+
+        if (detectedCustomerId) {
+          setCustomer(detectedCustomerId);
+          graphCustomerDataCacheRef.current.delete(detectedCustomerId);
+          frameworkOptions.forEach((option) => {
+            graphRebuildCacheRef.current.delete(`${option.value}::${detectedCustomerId}`);
+          });
+        }
+      } catch (requestError) {
+        results.push({ file: file.name, status: "error", error: requestError.message });
       }
-    } catch (requestError) {
-      setFaqUploadResult(null);
-      setError(requestError.message || "Failed to upload FAQ document.");
-      setFaqUploadStatus("");
-    } finally {
-      setUploadingFaq(false);
     }
+
+    const successCount = results.filter((r) => r.status === "success").length;
+    const failCount = results.filter((r) => r.status === "error").length;
+    setFaqUploadResult(results);
+    setFaqUploadStatus(`Done: ${successCount} uploaded${failCount > 0 ? `, ${failCount} failed` : ""}.`);
+    setUploadedFaqName(`${successCount} file(s)`);
+    setSelectedFaqFiles([]);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+
+    await loadCustomers(customer);
+    await loadCustomerDocuments();
+    setUploadingFaq(false);
   }
 
   async function handleCreateCustomer(event) {
@@ -1971,10 +1997,32 @@ function App() {
     <div className="app-shell">
       <main className="workspace">
         <section className="hero-card">
-          <h1>FAQ Assistant</h1>
-          <p className="hero-copy">
-            Choose Mode + RAG pattern + Framework + Customer, then ask your query.
-          </p>
+          <div className="hero-header">
+            <div className="hero-title-block">
+              <h1>FAQ Assistant</h1>
+              <p className="hero-copy">
+                Choose Mode + RAG pattern + Framework + Customer, then ask your query.
+              </p>
+            </div>
+            <div className="hero-actions">
+              <button
+                type="button"
+                className={`analysis-btn${analyticsVisible ? " active" : ""}`}
+                onClick={() => setAnalyticsVisible((v) => !v)}
+              >
+                {analyticsVisible ? "Hide Analysis" : "Analysis"}
+              </button>
+              <button
+                type="button"
+                className="faq-panel-toggle"
+                onClick={() => setDocumentManagerOpen((v) => !v)}
+                aria-expanded={documentManagerOpen}
+                aria-controls="faq-upload-panel"
+              >
+                {documentManagerOpen ? "Close FAQ" : "FAQ"}
+              </button>
+            </div>
+          </div>
         </section>
 
         <section className="toolbar-card">
@@ -2059,13 +2107,10 @@ function App() {
               {primaryActionLabel}
             </button>
             <button type="button" className="accent-solid" onClick={startNewConversation} disabled={!canStartNewConversation}>
-              Start New Conversation
+              New Chat
             </button>
             <button type="button" className="accent-solid" onClick={exportTranscript} disabled={!canExport}>
-              Export Transcript
-            </button>
-            <button type="button" className="accent-soft" onClick={() => setAnalyticsVisible((currentValue) => !currentValue)}>
-              {analyticsVisible ? "Hide analytics" : "Show analytics"}
+              Export
             </button>
           </div>
 
@@ -2090,113 +2135,41 @@ function App() {
             </p>
           )}
           {graphWarmupStatus && <p className="graph-status-banner">{graphWarmupStatus}</p>}
-          {selectedServiceId === "graph" && (
-            <div className="task-monitor-panel" role="region" aria-label="Graph rebuild task monitor">
-              <div className="task-monitor-header">
-                <p className="meta-title">Recent Graph Tasks ({frameworkOptions.find((f) => f.value === framework)?.label})</p>
-                <div className="task-monitor-controls">
-                  <div className="task-filter-toggle" role="group" aria-label="Task visibility filter">
-                    <button
-                      type="button"
-                      className={`task-filter-btn ${graphTaskFilter === "active" ? "active" : ""}`}
-                      onClick={() => setGraphTaskFilter("active")}
-                    >
-                      Active
-                    </button>
-                    <button
-                      type="button"
-                      className={`task-filter-btn ${graphTaskFilter === "all" ? "active" : ""}`}
-                      onClick={() => setGraphTaskFilter("all")}
-                    >
-                      All
-                    </button>
-                  </div>
-                  <button
-                    type="button"
-                    className="accent-soft"
-                    onClick={() => loadGraphTasks(10)}
-                    disabled={graphTasksLoading}
-                  >
-                    {graphTasksLoading ? "Refreshing..." : "Refresh tasks"}
-                  </button>
-                </div>
-              </div>
-              {graphTasksError && <p className="supporting-note">{graphTasksError}</p>}
-              {!graphTasksError && visibleGraphTasks.length === 0 && (
-                <p className="supporting-note">
-                  {graphTaskFilter === "active" ? "No active graph tasks right now." : "No recent graph tasks found."}
-                </p>
-              )}
-              {!graphTasksError && visibleGraphTasks.length > 0 && (
-                <div className="task-monitor-list">
-                  {visibleGraphTasks.map((task) => (
-                    <div key={task.taskId} className="task-monitor-entry">
-                      <div className="task-monitor-row">
-                        <span className={`task-status-chip task-status-${String(task.status || "").toLowerCase()}`}>
-                          {task.status || "UNKNOWN"}
-                        </span>
-                        <div className="task-row-body">
-                          <span className="task-type-text">{task.taskType || "TASK"}</span>
-                          <span className="task-meta-text">
-                            Updated {formatTaskTime(task.updatedAt)} | Created {formatTaskTime(task.createdAt)}
-                          </span>
-                          {task.error && <span className="task-error-text">{String(task.error).slice(0, 120)}</span>}
-                        </div>
-                        <span className="task-id-text">{String(task.taskId || "").slice(0, 8)}</span>
-                        <button
-                          type="button"
-                          className="task-details-toggle"
-                          onClick={() => toggleTaskDetails(task.taskId)}
-                          aria-expanded={expandedGraphTaskIds.has(String(task.taskId || ""))}
-                        >
-                          {expandedGraphTaskIds.has(String(task.taskId || "")) ? "Hide" : "Details"}
-                        </button>
-                      </div>
-                      {expandedGraphTaskIds.has(String(task.taskId || "")) && (
-                        <div className="task-detail-panel">
-                          <p className="task-detail-meta">
-                            <strong>Task ID:</strong> {String(task.taskId || "-")}
-                          </p>
-                          <p className="task-detail-meta">
-                            <strong>Created:</strong> {formatTaskDateTime(task.createdAt)} | <strong>Updated:</strong>{" "}
-                            {formatTaskDateTime(task.updatedAt)}
-                          </p>
-                          <pre className="task-detail-json">{formatTaskPayload(task)}</pre>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
           {error && <p className="error-banner">{error}</p>}
 
         </section>
 
         {analyticsVisible && (
-        <section className="dashboard-card">
+        <section className="analysis-side-panel open">
           <div className="dashboard-header">
             <div>
               <p className="section-label">Analytics Dashboard</p>
               <h2>All RAG Patterns x Frameworks x Customers</h2>
             </div>
-            <div className="toolbar-actions compact-actions analytics-actions">
-              <button
-                type="button"
-                className="accent-soft"
-                onClick={exportAnalyticsMatrix}
-                disabled={filteredDashboardRows.length === 0}
-              >
-                Export CSV
-              </button>
-              <button type="button" className="accent-soft" onClick={resetAnalyticsFilters}>
-                Reset filters
-              </button>
-              <button type="button" className="accent-soft" onClick={loadAnalyticsDashboard} disabled={dashboardLoading}>
-                {dashboardLoading ? "Refreshing..." : "Refresh analytics"}
-              </button>
-            </div>
+            <button
+              type="button"
+              className="accent-soft"
+              onClick={() => setAnalyticsVisible(false)}
+            >
+              Close
+            </button>
+          </div>
+
+          <div className="toolbar-actions compact-actions analytics-actions">
+            <button
+              type="button"
+              className="accent-soft"
+              onClick={exportAnalyticsMatrix}
+              disabled={filteredDashboardRows.length === 0}
+            >
+              Export CSV
+            </button>
+            <button type="button" className="accent-soft" onClick={resetAnalyticsFilters}>
+              Reset filters
+            </button>
+            <button type="button" className="accent-soft" onClick={loadAnalyticsDashboard} disabled={dashboardLoading}>
+              {dashboardLoading ? "Refreshing..." : "Refresh analytics"}
+            </button>
           </div>
 
           <p className="supporting-note">
@@ -2530,16 +2503,6 @@ function App() {
         </form>
       </main>
 
-      <button
-        type="button"
-        className="faq-panel-toggle"
-        onClick={() => setDocumentManagerOpen((currentValue) => !currentValue)}
-        aria-expanded={documentManagerOpen}
-        aria-controls="faq-upload-panel"
-      >
-        {documentManagerOpen ? "Close FAQ" : "FAQ"}
-      </button>
-
       <aside id="faq-upload-panel" className={`faq-side-panel ${documentManagerOpen ? "open" : ""}`}>
         <div className="faq-side-panel-header">
           <p className="section-label">FAQ Upload</p>
@@ -2553,36 +2516,57 @@ function App() {
         </div>
 
         <p className="supporting-note">
-          Upload one FAQ document. Customer name is auto-detected using LLM and document heuristics.
+          Upload FAQ documents (multiple files supported). Customer name is auto-detected using LLM and document heuristics.
         </p>
 
-        <label>
-          <span>Choose file</span>
+        <div
+          className={`faq-drop-zone${faqDragActive ? " drag-active" : ""}`}
+          onDrop={handleFaqDrop}
+          onDragOver={handleFaqDragOver}
+          onDragLeave={handleFaqDragLeave}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <span className="faq-drop-icon">📂</span>
+          <p>Drag &amp; drop files here</p>
+          <p className="supporting-note">or click to browse</p>
           <input
             ref={fileInputRef}
             type="file"
+            multiple
             accept=".pdf,.md,.yaml,.yml,.doc,.docx,.txt,.png,.jpg,.jpeg"
             onChange={handleFaqSelection}
+            style={{ display: "none" }}
           />
-        </label>
+        </div>
 
         <p className="supporting-note">
           Supported: PDF, Markdown, YAML, DOC/DOCX, TXT, PNG, JPG/JPEG
         </p>
 
-        {selectedFaqFile && (
-          <p className="supporting-note">
-            Selected: <strong>{selectedFaqFile.name}</strong> ({Math.round(selectedFaqFile.size / 1024)} KB)
-          </p>
+        {selectedFaqFiles.length > 0 && (
+          <div className="faq-file-list">
+            <p className="supporting-note"><strong>{selectedFaqFiles.length} file(s) selected</strong></p>
+            {selectedFaqFiles.map((file, idx) => (
+              <div key={`${file.name}-${idx}`} className="faq-file-item">
+                <span className="faq-file-name">{file.name}</span>
+                <span className="faq-file-size">{Math.round(file.size / 1024)} KB</span>
+                <button type="button" className="faq-file-remove" onClick={() => removeFaqFile(idx)} title="Remove">✕</button>
+              </div>
+            ))}
+          </div>
         )}
 
         {faqUploadStatus && <p className="supporting-note">{faqUploadStatus}</p>}
 
-        {faqUploadResult && (
+        {Array.isArray(faqUploadResult) && faqUploadResult.length > 0 && (
           <div className="upload-summary">
-            <p><strong>Uploaded:</strong> {faqUploadResult.originalFileName || uploadedFaqName}</p>
-            <p><strong>Status:</strong> {faqUploadResult.processingStatus || "Processed"}</p>
-            <p><strong>Chunks:</strong> {faqUploadResult.indexedChunkCount ?? faqUploadResult.chunkCount ?? 0}</p>
+            {faqUploadResult.map((r, i) => (
+              <p key={i}>
+                {r.status === "success"
+                  ? `✓ ${r.file} — ${r.customer} (${r.chunks} chunks)`
+                  : `✗ ${r.file} — ${r.error}`}
+              </p>
+            ))}
           </div>
         )}
 
