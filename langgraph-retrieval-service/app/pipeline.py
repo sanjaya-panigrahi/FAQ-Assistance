@@ -223,11 +223,12 @@ class RetrievalPipeline:
             for index, chunk in enumerate(chunks)
         )
         llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
+        customer_label = (request.tenantId or "the company").strip()
         result = llm.invoke(
             [
                 (
                     "system",
-                    "You are a MyTechStore support assistant. Answer only with facts present in the provided context. If context is insufficient, explicitly say you do not know.",
+                    f"You are a support assistant for {customer_label}. Answer only with facts present in the provided context. If context is insufficient, explicitly say you do not know.",
                 ),
                 (
                     "human",

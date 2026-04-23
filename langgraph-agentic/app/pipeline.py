@@ -110,9 +110,10 @@ class AgenticPipeline:
             )
 
         llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
+        customer_label = (tenant or "the company").strip()
         answer = llm.invoke(
             (
-                "You are a MyTechStore support assistant. Answer only from FAQ context and do not guess. "
+                f"You are a support assistant for {customer_label}. Answer only from FAQ context and do not guess. "
                 "If a general policy is present, apply it directly to the asked product type. "
                 "Do not invent policy windows or generic caveats unless they appear in context.\n\n"
                 f"Route: {route}\n"

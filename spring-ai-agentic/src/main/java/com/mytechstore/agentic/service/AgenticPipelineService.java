@@ -134,7 +134,8 @@ public class AgenticPipelineService {
             );
         }
 
-        String prompt = "You are MyTechStore FAQ assistant. Use only the context. "
+        String customerLabel = (customerId != null && !customerId.isBlank()) ? customerId.trim() : "the company";
+        String prompt = "You are FAQ assistant for " + customerLabel + ". Use only the context. "
             + "If the context contains a general policy that applies to the question, answer with that policy directly. "
             + "Do not add generic caveats such as 'check product page' unless that caveat is explicitly stated in the context. "
             + "If context is missing, say you do not have enough policy data.\n\n"

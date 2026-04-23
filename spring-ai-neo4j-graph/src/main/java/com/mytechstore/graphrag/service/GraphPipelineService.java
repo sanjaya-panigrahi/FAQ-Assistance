@@ -138,7 +138,8 @@ public class GraphPipelineService {
                 .toList();
 
         String graphContext = String.join("\n", graphFacts);
-        String prompt = "You are Graph RAG FAQ assistant for MyTechStore.\n"
+        String customerLabel = (customerId != null && !customerId.isBlank()) ? customerId.trim() : "the company";
+        String prompt = "You are Graph RAG FAQ assistant for " + customerLabel + ".\n"
                                 + "Use vector context and graph facts to answer. If the context provides a general policy and no product-specific"
                                 + " exception, answer with the general policy.\n\n"
                 + "Vector context:\n" + vectorContext + "\n\n"

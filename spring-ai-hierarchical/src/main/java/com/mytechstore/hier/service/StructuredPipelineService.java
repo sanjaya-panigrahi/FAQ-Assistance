@@ -148,7 +148,8 @@ public class StructuredPipelineService {
                     "pattern-registry+structured-extraction", "structured-retriever-layer");
         }
 
-        String prompt = "You are hierarchical RAG assistant for MyTechStore. "
+        String customerLabel = (customerId != null && !customerId.isBlank()) ? customerId.trim() : "the company";
+        String prompt = "You are hierarchical RAG assistant for " + customerLabel + ". "
                 + "Section selected: " + selectedSection + ". "
             + "Answer only from context. If the context provides a general policy and no product-specific exception, use the general policy. "
             + "Do not invent policy windows or generic caveats unless they appear in context.\n\n"

@@ -67,9 +67,10 @@ class HierarchicalPipeline:
                 orchestrationStrategy="langchain-hierarchical-retrieval",
                 selectedSection=section,
             )
+        customer_label = (tenant or "the company").strip()
         answer = llm.invoke(
             (
-                "You are hierarchical RAG assistant for MyTechStore. "
+                f"You are hierarchical RAG assistant for {customer_label}. "
                 f"Section selected: {selected_section}. "
                 "Answer only from context. If context provides a general policy and no product-specific exception, use the general policy. "
                 "Do not invent policy windows or generic caveats unless they appear in context.\n\n"

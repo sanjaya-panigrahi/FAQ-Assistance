@@ -2469,9 +2469,6 @@ function App() {
                       <h3>{result.frameworkLabel || result.serviceLabel}</h3>
                       <p className="result-answer">{result.answer}</p>
                       <p className="result-latency">Latency: {result.latencyMs} ms</p>
-                      <p className="result-latency">
-                        Source: {classifyResponseSource(result.strategy || extractMetaValue(result.meta, "Strategy"))}
-                      </p>
                       {false && (
                         <div className="meta-block">
                           <p className="meta-title">Signals</p>

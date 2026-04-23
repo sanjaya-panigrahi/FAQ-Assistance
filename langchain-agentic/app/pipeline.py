@@ -133,10 +133,11 @@ class AgenticPipeline:
                 orchestrationStrategy="langchain-agent",
             )
 
+        customer_label = (customer_id or "the company").strip()
         retriever_tool = create_retriever_tool(
             retriever,
-            "mytechstore_faq_retriever",
-            "Use this tool to retrieve answers from MyTechStore FAQ knowledge base.",
+            "faq_retriever",
+            f"Use this tool to retrieve answers from {customer_label} FAQ knowledge base.",
         )
 
         llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
@@ -144,7 +145,7 @@ class AgenticPipeline:
             [
                 (
                     "system",
-                    "You are a MyTechStore support assistant. Always use the FAQ retrieval tool and answer only from retrieved context. "
+                    f"You are a support assistant for {customer_label}. Always use the FAQ retrieval tool and answer only from retrieved context. "
                     "If a general policy is present, apply it directly to the asked product type. "
                     "Do not invent policy windows or add generic caveats unless those caveats appear in context. "
                     "When you find relevant context, use the extract_faq_answer tool to structure the response if applicable.",

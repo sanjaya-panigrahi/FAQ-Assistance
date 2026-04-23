@@ -123,7 +123,8 @@ public class VisionPipelineService {
                     "springai-multimodal-rag", null, null, List.of());
         }
 
-        String prompt = "You are MyTechStore multimodal FAQ assistant. "
+        String customerLabel = (customerId != null && !customerId.isBlank()) ? customerId.trim() : "the company";
+        String prompt = "You are multimodal FAQ assistant for " + customerLabel + ". "
                 + "Use FAQ context plus image metadata to answer. If a general policy is present, apply it directly"
                 + " to the asked product type. Do not invent policy windows or generic caveats unless they appear in context.\n\n"
                 + "Image metadata: " + (imageDescription == null ? "not provided" : imageDescription) + "\n\n"

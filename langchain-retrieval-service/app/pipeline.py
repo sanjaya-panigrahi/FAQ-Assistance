@@ -52,7 +52,7 @@ class RetrievalPipeline:
         retrieval_latency_ms = int((time.perf_counter() - retrieval_start) * 1000)
 
         generation_start = time.perf_counter()
-        answer, grounded = self._grounded_generate(request.question, ranked_chunks)
+        answer, grounded = self._grounded_generate(request.question, ranked_chunks, request.tenantId)
         generation_latency_ms = int((time.perf_counter() - generation_start) * 1000)
 
         response_chunks = [
@@ -181,7 +181,7 @@ class RetrievalPipeline:
         ranked.sort(key=lambda item: item["rerank_score"], reverse=True)
         return ranked[:top_k]
 
-    def _grounded_generate(self, question: str, chunks: list[dict]) -> tuple[str, bool]:
+    def _grounded_generate(self, question: str, chunks: list[dict], tenant_id: str = "") -> tuple[str, bool]:
         if not chunks:
             return (
                 "I could not find grounded FAQ evidence for that question. Please refine the question or ingest more tenant data.",
@@ -195,10 +195,11 @@ class RetrievalPipeline:
         context = "\n\n".join(context_lines)
 
         llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
+        customer_label = (tenant_id or "the company").strip()
         prompt = [
             (
                 "system",
-                "You are a MyTechStore support assistant. Answer only with facts present in the provided context. If context is insufficient, explicitly say you do not know.",
+                f"You are a support assistant for {customer_label}. Answer only with facts present in the provided context. If context is insufficient, explicitly say you do not know.",
             ),
             (
                 "human",

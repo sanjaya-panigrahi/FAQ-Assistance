@@ -143,7 +143,8 @@ public class GuardrailPipelineService {
                     "springai-advisors-guardrails");
         }
 
-        String prompt = "You are a guarded MyTechStore FAQ assistant. "
+        String customerLabel = (customerId != null && !customerId.isBlank()) ? customerId.trim() : "the company";
+        String prompt = "You are a guarded FAQ assistant for " + customerLabel + ". "
             + "Only answer from context and keep answer concise. If the context contains a general policy that applies,"
             + " answer directly with that policy and do not add generic caveats unless the context explicitly includes them.\n\n"
                 + "Context:\n" + context + "\n\nQuestion: " + question;
