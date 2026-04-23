@@ -1,5 +1,6 @@
 package com.mytechstore.retrieval.dto;
 
+import java.io.Serializable;
 import java.util.List;
 
 public record RetrievalQueryResponse(
@@ -13,5 +14,6 @@ public record RetrievalQueryResponse(
     int retrievalLatencyMs,
     int generationLatencyMs,
     List<RetrievalChunk> chunks
-) {
+) implements Serializable {
+    private static final long serialVersionUID = 1L;
 }

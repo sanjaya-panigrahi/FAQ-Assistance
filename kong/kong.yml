@@ -73,6 +73,10 @@ services:
 
   - name: spring-corrective
     url: http://spring-ai-corrective:9000
+    connect_timeout: 120000
+    write_timeout: 120000
+    read_timeout: 180000
+    retries: 1
     routes:
       - name: spring-corrective-route
         paths:
@@ -81,6 +85,10 @@ services:
 
   - name: spring-multimodal
     url: http://spring-ai-multimodal:9000
+    connect_timeout: 120000
+    write_timeout: 120000
+    read_timeout: 180000
+    retries: 1
     routes:
       - name: spring-multimodal-route
         paths:
@@ -89,6 +97,10 @@ services:
 
   - name: spring-hierarchical
     url: http://spring-ai-hierarchical:9000
+    connect_timeout: 120000
+    write_timeout: 120000
+    read_timeout: 180000
+    retries: 1
     routes:
       - name: spring-hierarchical-route
         paths:
@@ -97,6 +109,10 @@ services:
 
   - name: faq-ingestion
     url: http://faq-ingestion:9000
+    connect_timeout: 120000
+    write_timeout: 120000
+    read_timeout: 300000
+    retries: 3
     routes:
       - name: faq-ingestion-route
         paths:
@@ -105,6 +121,10 @@ services:
 
   - name: spring-faq-retrieval
     url: http://spring-ai-faq-retrieval:9010
+    connect_timeout: 120000
+    write_timeout: 120000
+    read_timeout: 180000
+    retries: 1
     routes:
       - name: spring-faq-retrieval-route
         paths:
@@ -121,6 +141,10 @@ services:
 
   - name: langchain-agentic
     url: http://langchain-agentic:8000
+    connect_timeout: 120000
+    write_timeout: 120000
+    read_timeout: 180000
+    retries: 1
     routes:
       - name: langchain-agentic-route
         paths:
@@ -129,6 +153,10 @@ services:
 
   - name: langchain-retrieval
     url: http://langchain-retrieval-service:8000
+    connect_timeout: 120000
+    write_timeout: 120000
+    read_timeout: 180000
+    retries: 1
     routes:
       - name: langchain-retrieval-route
         paths:
@@ -137,6 +165,10 @@ services:
 
   - name: langchain-neo4j-graph
     url: http://langchain-neo4j-graph:8000
+    connect_timeout: 120000
+    write_timeout: 120000
+    read_timeout: 180000
+    retries: 1
     routes:
       - name: langchain-neo4j-graph-route
         paths:
@@ -145,6 +177,10 @@ services:
 
   - name: langchain-corrective
     url: http://langchain-corrective:8000
+    connect_timeout: 120000
+    write_timeout: 120000
+    read_timeout: 180000
+    retries: 1
     routes:
       - name: langchain-corrective-route
         paths:
@@ -153,6 +189,10 @@ services:
 
   - name: langchain-multimodal
     url: http://langchain-multimodal:8000
+    connect_timeout: 120000
+    write_timeout: 120000
+    read_timeout: 180000
+    retries: 1
     routes:
       - name: langchain-multimodal-route
         paths:
@@ -161,6 +201,10 @@ services:
 
   - name: langchain-hierarchical
     url: http://langchain-hierarchical:8000
+    connect_timeout: 120000
+    write_timeout: 120000
+    read_timeout: 180000
+    retries: 1
     routes:
       - name: langchain-hierarchical-route
         paths:
@@ -169,6 +213,10 @@ services:
 
   - name: langgraph-agentic
     url: http://langgraph-agentic:8000
+    connect_timeout: 120000
+    write_timeout: 120000
+    read_timeout: 180000
+    retries: 1
     routes:
       - name: langgraph-agentic-route
         paths:
@@ -177,6 +225,10 @@ services:
 
   - name: langgraph-retrieval
     url: http://langgraph-retrieval-service:8000
+    connect_timeout: 120000
+    write_timeout: 120000
+    read_timeout: 180000
+    retries: 1
     routes:
       - name: langgraph-retrieval-route
         paths:
@@ -185,6 +237,10 @@ services:
 
   - name: langgraph-neo4j-graph
     url: http://langgraph-neo4j-graph:8000
+    connect_timeout: 120000
+    write_timeout: 120000
+    read_timeout: 180000
+    retries: 1
     routes:
       - name: langgraph-neo4j-graph-route
         paths:
@@ -193,6 +249,10 @@ services:
 
   - name: langgraph-corrective
     url: http://langgraph-corrective:8000
+    connect_timeout: 120000
+    write_timeout: 120000
+    read_timeout: 180000
+    retries: 1
     routes:
       - name: langgraph-corrective-route
         paths:
@@ -201,6 +261,10 @@ services:
 
   - name: langgraph-multimodal
     url: http://langgraph-multimodal:8000
+    connect_timeout: 120000
+    write_timeout: 120000
+    read_timeout: 180000
+    retries: 1
     routes:
       - name: langgraph-multimodal-route
         paths:
@@ -209,6 +273,10 @@ services:
 
   - name: langgraph-hierarchical
     url: http://langgraph-hierarchical:8000
+    connect_timeout: 120000
+    write_timeout: 120000
+    read_timeout: 180000
+    retries: 1
     routes:
       - name: langgraph-hierarchical-route
         paths:

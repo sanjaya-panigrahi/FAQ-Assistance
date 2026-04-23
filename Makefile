@@ -1,4 +1,4 @@
-.PHONY: help check-tools setup-env build-all up-all up-all-limited down-all down-rebuild-up rebuild-indexes test-all clean kong-refresh kong-verify-graph kong-recover-graph kong-smoke-all phase3-smoke-events kafka-up kafka-down
+.PHONY: help check-tools setup-env build-all up-all up-all-limited ui-refresh down-all down-rebuild-up rebuild-indexes test-all clean kong-refresh kong-verify-graph kong-recover-graph kong-smoke-all phase3-smoke-events kafka-up kafka-down
 .PHONY: spring-build spring-up spring-down spring-test
 .PHONY: langchain-build langchain-up langchain-down langchain-test
 .PHONY: langgraph-build langgraph-up langgraph-down langgraph-test
@@ -38,6 +38,7 @@ help:
 	@echo ""
 	@echo "Resource management:"
 	@echo "  up-all-limited         Start all stacks WITH memory/CPU limits (recommended for local dev)"
+	@echo "  ui-refresh             Rebuild and refresh only the FAQ UI container"
 	@echo ""
 	@echo "Kong utilities:"
 	@echo "  kong-refresh           Restart Kong to clear stale DNS cache"
@@ -80,6 +81,13 @@ up-all-limited:
 	@$(MAKE) check-tools setup-env
 	docker compose -f docker-compose.master.yml -f docker-compose.resources.yml -f docker-compose.kong.yml up -d --remove-orphans
 	@echo "✓ All stacks running with memory/CPU limits"
+
+ui-refresh:
+	@echo "Rebuilding and refreshing FAQ UI only..."
+	docker compose -f docker-compose.master.yml -f docker-compose.kong.yml build faq-ui
+	docker compose -f docker-compose.master.yml -f docker-compose.kong.yml up -d --no-deps --force-recreate faq-ui
+	@curl -sS -o /dev/null -w 'UI status: %{http_code}\n' http://localhost:5173/
+	@echo "✓ FAQ UI refreshed"
 
 down-all: spring-down langchain-down langgraph-down
 	@echo "✓ All stacks shut down"

@@ -8,6 +8,8 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
+import java.io.Serializable;
+
 public record RetrievalQueryRequest(
     @JsonProperty("tenantId")
     @JsonAlias({"customerId", "customer_id", "tenant_id"})
@@ -16,5 +18,6 @@ public record RetrievalQueryRequest(
     @Size(max = 4000) String queryContext,
     @Min(1) @Max(20) Integer topK,
     @Min(0) @Max(1) Double similarityThreshold
-) {
+) implements Serializable {
+    private static final long serialVersionUID = 1L;
 }

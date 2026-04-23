@@ -1,7 +1,28 @@
-# Runtime-only image: serve prebuilt Vite dist via nginx.
+# Build the UI inside Docker so dist is always refreshed during image build.
+FROM node:18-slim AS build
+WORKDIR /app
+
+# Install build tools for optional dependencies (e.g., rollup native module compilation)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+	build-essential \
+	python3 \
+	&& rm -rf /var/lib/apt/lists/*
+
+COPY package.json ./
+RUN npm install --package-lock=false
+
+COPY . .
+
+# Optional build-time API gateway override.
+ARG VITE_API_BASE_URL=http://localhost:9080
+ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
+
+RUN npm run build
+RUN test -f /app/dist/index.html
+
+# Runtime image: serve built assets with nginx.
 FROM nginx:1.27-alpine
-COPY dist /usr/share/nginx/html
-RUN test -f /usr/share/nginx/html/index.html
+COPY --from=build /app/dist /usr/share/nginx/html
 # SPA routing config (try_files -> index.html, static-asset caching)
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 5173

@@ -1,4 +1,7 @@
 package com.mytechstore.agentic.dto;
 
-public record RagResponse(String answer, String strategy, int chunksUsed, String orchestrationStrategy) {
+import java.io.Serializable;
+
+public record RagResponse(String answer, String strategy, int chunksUsed, String orchestrationStrategy) implements Serializable {
+    private static final long serialVersionUID = 1L;
 }

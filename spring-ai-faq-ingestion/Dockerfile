@@ -4,11 +4,13 @@ WORKDIR /build
 
 # Copy pom.xml and download dependencies
 COPY pom.xml .
-RUN mvn dependency:resolve
+RUN --mount=type=cache,target=/root/.m2 \
+    mvn -B dependency:resolve dependency:resolve-plugins
 
 # Copy source code and build
 COPY src src/
-RUN mvn clean package -DskipTests
+RUN --mount=type=cache,target=/root/.m2 \
+    mvn -B clean package -DskipTests
 
 # Runtime stage — alpine JRE is ~95 MB lighter than the Debian variant
 FROM eclipse-temurin:21-jre-alpine

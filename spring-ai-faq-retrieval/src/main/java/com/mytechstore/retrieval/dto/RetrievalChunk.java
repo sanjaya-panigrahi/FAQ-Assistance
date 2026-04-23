@@ -1,5 +1,7 @@
 package com.mytechstore.retrieval.dto;
 
+import java.io.Serializable;
+
 public record RetrievalChunk(
     int rank,
     String content,
@@ -8,5 +10,6 @@ public record RetrievalChunk(
     double vectorScore,
     double lexicalScore,
     double rerankScore
-) {
+) implements Serializable {
+    private static final long serialVersionUID = 1L;
 }

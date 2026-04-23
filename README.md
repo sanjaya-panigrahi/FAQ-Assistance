@@ -1,12 +1,175 @@
 # FAQ Assistance - Multi-Stack RAG Microservices
 
-A comprehensive workspace demonstrating five RAG (Retrieval-Augmented Generation) patterns implemented across three separate technology stacks:
+---
 
-- **Spring AI** (Java) - Native-compiled microservices
-- **LangChain** (Python) - Traditional Python stack
-- **LangGraph** (Python) - Agentic workflow framework
+## 1. Problem Statement
 
-Each stack contains 5 microservices implementing the same RAG patterns, indexed on the **MyTechStore FAQ** corpus.
+Customer-facing support teams at retail and technology companies manage thousands of FAQ queries daily. Traditional keyword-based search systems struggle to return accurate, contextually relevant answers — especially when questions are phrased differently from the stored FAQ text, require multi-step reasoning, combine image and text signals, or span multiple knowledge categories.
+
+**This project addresses the following core problems:**
+
+- **Inconsistent answer quality**: Keyword search cannot understand semantic intent, leading to irrelevant or incomplete answers.
+- **No comparison baseline**: Teams adopting LLM-based retrieval lack a consistent framework to compare different RAG strategies side-by-side.
+- **Technology fragmentation**: Spring AI (Java), LangChain (Python), and LangGraph (Python) each have different strengths but are rarely benchmarked against identical workloads.
+- **Pattern selection uncertainty**: It is unclear whether Agentic, Graph, Corrective, Multimodal, or Hierarchical RAG is best suited for a given query type without running them against real data.
+
+**Solution**: A unified workspace implementing five RAG patterns across three technology stacks, all indexed on the same **MyTechStore FAQ** corpus. This enables direct, apples-to-apples comparison of retrieval accuracy, latency, and answer quality — giving engineering teams the evidence they need to make informed architecture decisions.
+
+---
+
+## 2. Prerequisites
+
+| Requirement | Minimum Version | Notes |
+|-------------|----------------|-------|
+| Docker | 24.x | Required for all services |
+| Docker Compose | v2.x (plugin) | `docker compose` (not `docker-compose`) |
+| OpenAI API Key | — | Set as `OPENAI_API_KEY` env variable |
+| Java (JDK) | 21 LTS | Required only for local Spring AI builds |
+| Maven | 3.9.x | Required only for local Spring AI builds |
+| Python | 3.11+ | Required only for local LangChain/LangGraph runs |
+| Node.js | 18+ | Required only for local UI development |
+| curl | any | Used by smoke tests and Makefile health checks |
+| make | any | Used to run orchestration targets |
+
+**Verify tools before starting:**
+```bash
+make check-tools
+```
+
+**Bootstrap environment files:**
+```bash
+make setup-env
+# Then edit .env and set: OPENAI_API_KEY=sk-...
+```
+
+---
+
+## 3. Project Structure
+
+```
+FAQ-Assistance/
+├── Makefile                          # Primary operator interface (build/up/test/clean)
+├── docker-compose.master.yml         # Full-stack unified compose
+├── docker-compose.yml                # Spring AI stack
+├── docker-compose.langchain.yml      # LangChain stack
+├── docker-compose.langgraph.yml      # LangGraph stack
+├── docker-compose.kafka.yml          # Kafka + Zookeeper (event bus)
+├── docker-compose.resources.yml      # Shared infrastructure (Redis, ChromaDB, Neo4j)
+├── docker-compose.kong.yml           # Kong API gateway
+├── docker-compose.elk.yml            # ELK logging overlay (optional)
+├── .env.example                      # Environment template
+├── shared-data/
+│   └── mytechstore-faq.md            # Shared FAQ corpus (indexed by all services)
+├── shared-patterns/
+│   └── patterns_config.yaml          # Shared pattern registry (Python services)
+├── spring-ai-agentic/                # Spring AI – Agentic RAG (port 8081)
+├── spring-ai-neo4j-graph/            # Spring AI – Graph RAG (port 8082)
+├── spring-ai-corrective/             # Spring AI – Corrective RAG (port 8083)
+├── spring-ai-multimodal/             # Spring AI – Multimodal RAG (port 8084)
+├── spring-ai-hierarchical/           # Spring AI – Hierarchical RAG (port 8085)
+├── spring-ai-faq-ingestion/          # Spring AI – FAQ ingestion API (port 9000)
+├── spring-ai-faq-retrieval/          # Spring AI – Retrieval microservice (port 9010)
+├── langchain-agentic/                # LangChain – Agentic RAG (port 8181)
+├── langchain-neo4j-graph/            # LangChain – Graph RAG (port 8182)
+├── langchain-corrective/             # LangChain – Corrective RAG (port 8183)
+├── langchain-multimodal/             # LangChain – Multimodal RAG (port 8184)
+├── langchain-hierarchical/           # LangChain – Hierarchical RAG (port 8185)
+├── langchain-retrieval-service/      # LangChain – Retrieval microservice (port 8190)
+├── langgraph-agentic/                # LangGraph – Agentic RAG (port 8281)
+├── langgraph-neo4j-graph/            # LangGraph – Graph RAG (port 8282)
+├── langgraph-corrective/             # LangGraph – Corrective RAG (port 8283)
+├── langgraph-multimodal/             # LangGraph – Multimodal RAG (port 8284)
+├── langgraph-hierarchical/           # LangGraph – Hierarchical RAG (port 8285)
+├── langgraph-retrieval-service/      # LangGraph – Retrieval microservice (port 8290)
+├── faq-assistance-ui/                # React UI – compare all stacks (port 5173)
+├── kong/                             # Kong declarative config (kong.yml)
+├── consul/                           # Consul service discovery config
+├── k8s/                              # Kubernetes manifests and deploy script
+└── helm/                             # Helm charts
+```
+
+---
+
+## 4. Technology Used in Each Project
+
+### Spring AI Services (`spring-ai-*`)
+| Layer | Technology |
+|-------|-----------|
+| Language | Java 21 |
+| Framework | Spring Boot 3.x, Spring AI |
+| LLM Integration | OpenAI (via Spring AI OpenAI starter) |
+| Vector Store | ChromaDB (via Spring AI Chroma integration) |
+| Graph Database | Neo4j (via Spring Data Neo4j) |
+| HTTP Client | Spring WebFlux `WebClient` |
+| Caching | Spring Cache + Redis (via `spring-boot-starter-data-redis`) |
+| Resilience | Resilience4j circuit breaker |
+| Build | Maven 3.9, multi-stage Docker build |
+| Testing | JUnit 5, Mockito |
+| Async tasks | `@Async` + Redis-backed `TaskService` (neo4j-graph) |
+| Event bus | Apache Kafka (`spring-kafka`) – optional overlay |
+
+### LangChain Services (`langchain-*`)
+| Layer | Technology |
+|-------|-----------|
+| Language | Python 3.11 |
+| Framework | FastAPI, Uvicorn |
+| LLM Integration | OpenAI (via `langchain-openai`) |
+| Orchestration | LangChain (`langchain`, `langchain-core`) |
+| Vector Store | ChromaDB (`langchain-chroma`, `chromadb`) |
+| Graph Database | Neo4j (`langchain-neo4j`) |
+| Caching | Redis (`redis-py`) |
+| Async tasks | Celery + Redis broker (neo4j-graph worker) |
+| Resilience | `tenacity` retry library |
+| Auth | JWT (`python-jose`) |
+| Build | Docker multi-stage, `requirements.txt` |
+
+### LangGraph Services (`langgraph-*`)
+| Layer | Technology |
+|-------|-----------|
+| Language | Python 3.11 |
+| Framework | FastAPI, Uvicorn |
+| LLM Integration | OpenAI (via `langchain-openai`) |
+| Orchestration | LangGraph (`langgraph`) state graph workflows |
+| Vector Store | ChromaDB (`langchain-chroma`, `chromadb`) |
+| Graph Database | Neo4j (`langchain-neo4j`) |
+| Caching | Redis (`redis-py`) |
+| Async tasks | Celery + Redis broker (neo4j-graph worker) |
+| Resilience | `tenacity` retry library |
+| Auth | JWT (`python-jose`) |
+| Build | Docker multi-stage, `requirements.txt` |
+
+### FAQ Ingestion Service (`spring-ai-faq-ingestion`)
+| Layer | Technology |
+|-------|-----------|
+| Language | Java 21 |
+| Framework | Spring Boot 3.x, Spring AI |
+| Storage | PostgreSQL (JPA/Hibernate) for document metadata |
+| Vector Store | ChromaDB (HTTP client, UUID-based collection API) |
+| File Parsing | Apache Tika, Apache PDFBox |
+| LLM | OpenAI (customer detection from document content) |
+| Build | Maven 3.9, multi-stage Docker build |
+
+### React UI (`faq-assistance-ui`)
+| Layer | Technology |
+|-------|-----------|
+| Language | TypeScript |
+| Framework | React 18, Vite |
+| Styling | Tailwind CSS |
+| HTTP | Fetch API |
+| Build | Node.js 18+, `npm run build` → served by Nginx |
+
+### Shared Infrastructure
+| Component | Technology | Port(s) |
+|-----------|-----------|---------|
+| Vector database | ChromaDB 0.5.23 | 8000 |
+| Graph database (Spring) | Neo4j 5.x | 7474 / 7687 |
+| Graph database (LangChain) | Neo4j 5.x | 7475 / 7688 |
+| Graph database (LangGraph) | Neo4j 5.x | 7476 / 7689 |
+| Cache / Celery broker | Redis 7 | 6379 |
+| API Gateway | Kong 3.x (DB-less) | 9080 / 9443 |
+| Event bus | Apache Kafka + Zookeeper | 9092 |
+| Log aggregation | Elasticsearch + Logstash + Kibana | 9200 / 5601 |
+| Container logs | Dozzle | 9999 |
 
 ---
 
@@ -421,44 +584,7 @@ make langgraph-test
 make rebuild-indexes
 ```
 
----
 
-## Project Structure
-
-```
-FAQ-Assistance/
-├── Makefile
-├── docker-compose.yml              # Spring AI
-├── docker-compose.langchain.yml    # LangChain
-├── docker-compose.langgraph.yml    # LangGraph
-├── docker-compose.faq-ingestion.yml # FAQ ingestion (standalone)
-├── shared-data/
-│   └── mytechstore-faq.md
-├── spring-ai-{agentic,neo4j-graph,...}/
-├── spring-ai-faq-ingestion/
-├── langchain-{agentic,neo4j-graph,...}/
-├── langgraph-{agentic,neo4j-graph,...}/
-└── faq-assistance-ui/
-```
-
----
-
-## Advanced Builds
-
-### Spring AI only:
-```bash
-mvn -q -DskipTests -f spring-ai-agentic/pom.xml package
-mvn -q -DskipTests -f spring-ai-neo4j-graph/pom.xml package
-mvn -q -DskipTests -f spring-ai-corrective/pom.xml package
-mvn -q -DskipTests -f spring-ai-multimodal/pom.xml package
-mvn -q -DskipTests -f spring-ai-hierarchical/pom.xml package
-```
-
-### Frontend:
-```bash
-cd faq-assistance-ui
-npm install && npm run build
-```
 
 ---
 

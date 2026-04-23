@@ -44,6 +44,10 @@ services:
 
   - name: faq-ingestion
     url: http://faq-ingestion.service.consul:9000
+    connect_timeout: 120000
+    write_timeout: 120000
+    read_timeout: 300000
+    retries: 3
     routes:
       - name: faq-ingestion-route
         paths:
