@@ -121,11 +121,11 @@ environment:
   ZIPKIN_HOST: "zipkin"
   ZIPKIN_PORT: "9411"
 
-# Secrets
+# Secrets — override via --set or a gitignored values-secret.yaml
 secrets:
-  JWT_SECRET: "dev-secret-key-change-in-production"
+  JWT_SECRET: ""
   NEO4J_USER: "neo4j"
-  NEO4J_PASSWORD: "password"
+  NEO4J_PASSWORD: ""
   OPENAI_API_KEY: ""
 
 # Network Policy

@@ -462,12 +462,12 @@ services:
     environment:
       MYSQL_DATABASE: rag_analytics
       MYSQL_USER: analytics
-      MYSQL_PASSWORD: analyticspass
-      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_PASSWORD: ${ANALYTICS_MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${ANALYTICS_MYSQL_ROOT_PASSWORD}
     volumes:
       - analytics_mysql_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-prootpass"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${ANALYTICS_MYSQL_ROOT_PASSWORD}"]
       interval: 20s
       timeout: 10s
       retries: 10
@@ -489,7 +489,7 @@ services:
       ANALYTICS_DB_PORT: 3306
       ANALYTICS_DB_NAME: rag_analytics
       ANALYTICS_DB_USER: analytics
-      ANALYTICS_DB_PASSWORD: analyticspass
+      ANALYTICS_DB_PASSWORD: ${ANALYTICS_MYSQL_PASSWORD}
     depends_on:
       analytics-mysql:
         condition: service_healthy
