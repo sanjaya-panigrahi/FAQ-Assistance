@@ -35,6 +35,8 @@ class RetrievalPipelineServiceTest {
     private ObjectMapper objectMapper;
     @Mock
     private HttpClient httpClient;
+    @Mock
+    private AnalyticsReporter analyticsReporter;
 
     @BeforeEach
     void setUp() {
@@ -52,7 +54,8 @@ class RetrievalPipelineServiceTest {
             10,
             0.4,
             0.7,
-            0.3
+            0.3,
+            analyticsReporter
         );
     }
 

@@ -3,7 +3,11 @@ package com.mytechstore.graphrag.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mytechstore.graphrag.dto.RagRequest;
 import com.mytechstore.graphrag.dto.RagResponse;
+import com.mytechstore.graphrag.dto.TaskResponse;
 import com.mytechstore.graphrag.service.GraphPipelineService;
+import com.mytechstore.graphrag.service.GraphRebuildWorker;
+import com.mytechstore.graphrag.service.TaskService;
+import com.mytechstore.graphrag.event.GraphTaskEventStats;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.vectorstore.VectorStore;
 
@@ -38,19 +42,30 @@ class GraphRagControllerTest {
     private GraphPipelineService pipelineService;
 
     @MockBean
+    private TaskService taskService;
+
+    @MockBean
+    private GraphRebuildWorker graphRebuildWorker;
+
+    @MockBean
+    private GraphTaskEventStats eventStats;
+
+    @MockBean
     private ChatClient chatClient;
 
     @MockBean
     private VectorStore vectorStore;
 
     @Test
-    @DisplayName("POST /api/index/rebuild returns 200 with status")
+    @DisplayName("POST /api/index/rebuild returns 202 with task")
     void rebuildIndex_returnsOk() throws Exception {
-        when(pipelineService.rebuildIndex()).thenReturn("rebuilt");
+        TaskResponse mockTask = new TaskResponse("task-1", "REBUILD_GRAPH_INDEX", "PENDING", null, null, null);
+        when(taskService.createTask("REBUILD_GRAPH_INDEX")).thenReturn(mockTask);
 
         mockMvc.perform(post("/api/index/rebuild"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status", is("rebuilt")));
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.taskId", is("task-1")))
+                .andExpect(jsonPath("$.status", is("PENDING")));
     }
 
     @Test

@@ -452,6 +452,26 @@ curl -s http://localhost:9000/api/faq-ingestion/health | jq .
 - Document upload and indexing are now working.
 - Query can still return empty sources until query-result parsing and embedding/query payload handling are completed in the ingestion service.
 
+### RAG Analytics & LLM-as-Judge – Port 9191
+
+**Status**: Fully operational with backend-side analytics posting and LLM-as-Judge scoring
+
+**Services**:
+- `9191` – RAG Analytics API (`rag-analytics`) – FastAPI dashboard, event ingestion, score distribution
+- `rag-analytics-worker` – Celery background worker for GPT-4o-mini LLM-as-Judge evaluation
+- `3307` – Analytics MySQL (`analytics-mysql`) – persistent event and score storage
+
+**How it works**: All 18 RAG services post analytics events (including `contextDocs` — the raw retrieved context sent to the LLM) directly from their pipeline methods:
+- **Python services** (12): `app/analytics_client.py` — stdlib-only, fire-and-forget via daemon thread
+- **Spring AI services** (6): `AnalyticsReporter.java` — `java.net.http.HttpClient` + `CompletableFuture.runAsync()`
+
+When `contextDocs` is present and `LLM_SCORING_ENABLED=true`, the analytics service dispatches a Celery task that runs three GPT-4o-mini judge prompts (retrieval quality, groundedness, safety) and stores the 0–1 scores in MySQL.
+
+**Configuration**:
+- Python: `ANALYTICS_URL` env var (default: `http://rag-analytics:9191`)
+- Java: `analytics.url` property (default: `http://rag-analytics:9191`)
+- Analytics: `LLM_SCORING_ENABLED=true` to enable LLM-as-Judge
+
 ---
 
 ## Shared FAQ Corpus

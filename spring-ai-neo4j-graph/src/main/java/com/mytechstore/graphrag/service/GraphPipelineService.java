@@ -54,25 +54,30 @@ public class GraphPipelineService {
         private final WebClient webClient;
         private final int defaultTopK;
     private final AnalyticsReporter analyticsReporter;
+
+    public GraphPipelineService(VectorStore vectorStore,
                                 Neo4jClient neo4jClient,
                                 ChatClient chatClient,
-                                                        @Value("${faq.source-file}") String sourceFile,
-                                                        EmbeddingModel embeddingModel,
-                                                        @Value("${chroma.url:http://chroma-faq:8000}") String chromaUrl,
-                                                        @Value("${chroma.collection-prefix:faq_}") String collectionPrefix,
-                                                        @Value("${retrieval.top-k:6}") int defaultTopK,
-                                                        WebClient webClient) {
+                                @Value("${faq.source-file}") String sourceFile,
+                                EmbeddingModel embeddingModel,
+                                @Value("${chroma.url:http://chroma-faq:8000}") String chromaUrl,
+                                @Value("${chroma.collection-prefix:faq_}") String collectionPrefix,
+                                @Value("${retrieval.top-k:6}") int defaultTopK,
+                                WebClient webClient,
+                                AnalyticsReporter analyticsReporter) {
         this.vectorStore = vectorStore;
         this.neo4jClient = neo4jClient;
         this.chatClient = chatClient;
         this.sourceFile = sourceFile;
-                this.embeddingModel = embeddingModel;
-                this.chromaUrl = chromaUrl;
-                this.collectionPrefix = collectionPrefix;
-                this.defaultTopK = defaultTopK;
-           this.webClient = webClient;
+        this.embeddingModel = embeddingModel;
+        this.chromaUrl = chromaUrl;
+        this.collectionPrefix = collectionPrefix;
+        this.defaultTopK = defaultTopK;
+        this.webClient = webClient;
         this.analyticsReporter = analyticsReporter;
-        @CacheEvict(value = {"graphAnswers", "graphChroma"}, allEntries = true)
+    }
+
+    @CacheEvict(value = {"graphAnswers", "graphChroma"}, allEntries = true)
         public synchronized String rebuildIndex() {
         List<Document> docs = parseFaqDocuments();
 
