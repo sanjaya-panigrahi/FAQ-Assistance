@@ -50,3 +50,15 @@ app:
     source-service: ${APP_EVENTS_SOURCE_SERVICE:spring-ai-neo4j-graph}
     consumer-enabled: ${APP_EVENTS_CONSUMER_ENABLED:false}
     consumer-group-id: ${APP_EVENTS_CONSUMER_GROUP_ID:spring-ai-neo4j-graph-consumer}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLE_PROBABILITY:1.0}
+  zipkin:
+    tracing:
+      endpoint: ${ZIPKIN_URL:http://zipkin:9411}/api/v2/spans

@@ -32,3 +32,15 @@ chroma:
   collection-prefix: ${APP_CHROMA_COLLECTION_NAME_PREFIX:faq_}
 retrieval:
   top-k: ${APP_RAG_TOP_K_RESULTS:6}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLE_PROBABILITY:1.0}
+  zipkin:
+    tracing:
+      endpoint: ${ZIPKIN_URL:http://zipkin:9411}/api/v2/spans

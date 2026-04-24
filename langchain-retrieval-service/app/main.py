@@ -10,6 +10,7 @@ from .settings import get_settings
 from .logging_config import setup_logging, get_logger
 from .metrics import MetricsMiddleware, get_metrics
 from .security import get_current_user_optional, TokenPayload
+from .tracing import setup_tracing, shutdown_tracing
 
 # Setup logging
 setup_logging(
@@ -29,6 +30,7 @@ async def lifespan(app: FastAPI):
         environment=settings.environment
     )
     yield
+    shutdown_tracing()
     logger.info("Application shutting down", service=settings.service_name)
 
 # Create FastAPI app
@@ -57,6 +59,16 @@ app.add_middleware(MetricsMiddleware)
 # Include routers
 app.include_router(auth_router)
 app.include_router(router)
+
+# Setup distributed tracing
+setup_tracing(
+    app,
+    service_name=settings.service_name,
+    zipkin_host=settings.zipkin_host,
+    zipkin_port=settings.zipkin_port,
+    sample_rate=settings.tracing_sample_rate,
+    enabled=settings.tracing_enabled,
+)
 
 
 # Metrics endpoint
