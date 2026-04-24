@@ -98,10 +98,9 @@ public class VisionPipelineService {
         }
 
         String customerLabel = (customerId != null && !customerId.isBlank()) ? customerId.trim() : "the company";
-        String prompt = "You are multimodal FAQ assistant for " + customerLabel + ". "
-                + "Use FAQ context plus image metadata to answer. If a general policy is present, apply it directly"
-                + " to the asked product type. Do not invent policy windows or generic caveats unless they appear in context.\n\n"
-                + "Image metadata: " + (imageDescription == null ? "not provided" : imageDescription) + "\n\n"
+        String prompt = "You are a FAQ assistant for " + customerLabel + ". "
+                + "Answer the user's question using ONLY the provided FAQ context below. "
+                + "Answer concisely and factually.\n\n"
                 + "FAQ context:\n" + context + "\n\n"
                 + "Question: " + question;
 
@@ -245,19 +244,7 @@ public class VisionPipelineService {
     }
 
     private String expandQuery(String question) {
-        String normalized = normalize(question);
-        LinkedHashSet<String> parts = new LinkedHashSet<>();
-        parts.add(question);
-        if (normalized.contains("return") || normalized.contains("refund") || normalized.contains("replace")) {
-            parts.add("return policy returns refunds replacements defective items unopened items");
-        }
-        if (normalized.contains("warranty") || normalized.contains("damage") || normalized.contains("protection")) {
-            parts.add("warranty extended warranty accidental damage protection repair coverage");
-        }
-        if (normalized.contains("delivery") || normalized.contains("shipping")) {
-            parts.add("shipping delivery tracking express same-day order status");
-        }
-        return String.join(" ", parts);
+        return question;
     }
 
     private int lexicalScore(String question, Document document) {

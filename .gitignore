@@ -43,6 +43,7 @@ dist/
 *.html
 
 Doc/
+Doc_Old/
 
 .DS_Store
 

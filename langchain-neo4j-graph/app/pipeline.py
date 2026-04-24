@@ -124,10 +124,7 @@ class GraphPipeline:
 
         system_prompt = (
             "You are a FAQ assistant. Answer the user's question using ONLY the provided FAQ context below. "
-            "Do NOT use any external knowledge or make assumptions beyond what is stated. "
-            "If the context contains a general policy that covers the topic, apply it directly — "
-            "do not refuse to answer just because the product is not explicitly named in the policy. "
-            "Answer concisely and factually based solely on the context."
+            "Answer concisely and factually."
         )
         user_prompt = (
             f"Question: {question}\n\n"

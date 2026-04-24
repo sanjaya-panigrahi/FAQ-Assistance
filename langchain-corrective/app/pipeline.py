@@ -49,14 +49,17 @@ class CorrectivePipeline:
         context = "\n\n".join(doc.page_content for doc in docs)
 
         answer = llm.invoke(
-            (
-                "You are a corrective RAG assistant. Answer using ONLY the FAQ context provided below. "
-                "If the context contains a general policy (e.g. return policy, warranty), apply it directly to the specific product the user asks about. "
-                "Do not say the information is missing if a general policy covers it. "
-                "Do not invent facts or add caveats not present in the context.\n\n"
-                f"Question: {question}\n\n"
-                f"FAQ Context:\n{context}"
-            )
+            [
+                (
+                    "system",
+                    "You are a FAQ assistant. Answer the user's question using ONLY the provided FAQ context below. "
+                    "Answer concisely and factually.",
+                ),
+                (
+                    "human",
+                    f"Question: {question}\n\nFAQ Context:\n{context}",
+                ),
+            ]
         ).content
 
         return RagResponse(

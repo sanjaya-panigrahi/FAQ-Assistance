@@ -8,15 +8,11 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
 from .config import settings
 from .schemas import RagResponse
-from .semantic_intents import SemanticIntentMatcher
 
 
 class AgenticPipeline:
     CHROMA_TENANT = "default_tenant"
     CHROMA_DATABASE = "default_database"
-
-    def __init__(self) -> None:
-        self._intent_matcher = SemanticIntentMatcher(model=settings.openai_embedding_model)
 
     def health(self) -> dict:
         try:
@@ -29,9 +25,6 @@ class AgenticPipeline:
         return 0
 
     def ask(self, question: str, customer_id: str | None = None) -> RagResponse:
-        route = self._route(question)
-        retrieval_query = self._expand_query(question, route)
-
         tenant = (customer_id or "default").strip()
         collection = f"{settings.chroma_collection_prefix}{tenant}"
 
@@ -49,7 +42,7 @@ class AgenticPipeline:
         if not collection_id:
             raise RuntimeError(f"Collection id missing for {collection}")
 
-        query_embedding = embeddings.embed_query(retrieval_query)
+        query_embedding = embeddings.embed_query(question)
         query_payload = self._query_collection(
             collection_id=collection_id,
             query_embedding=query_embedding,
@@ -69,15 +62,17 @@ class AgenticPipeline:
         llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
         customer_label = (tenant or "the company").strip()
         answer = llm.invoke(
-            (
-                f"You are a support assistant for {customer_label}. Answer using ONLY the FAQ context provided below. "
-                "If the context contains a general policy (e.g. return policy, warranty), apply it directly to the specific product the user asks about. "
-                "Do not say the information is missing if a general policy covers it. "
-                "Do not invent facts or add caveats not present in the context.\n\n"
-                f"Route: {route}\n"
-                f"Question: {question}\n\n"
-                f"FAQ Context:\n{context}"
-            )
+            [
+                (
+                    "system",
+                    f"You are a FAQ assistant for {customer_label}. Answer the user's question using ONLY the provided FAQ context below. "
+                    "Answer concisely and factually.",
+                ),
+                (
+                    "human",
+                    f"Question: {question}\n\nFAQ Context:\n{context}",
+                ),
+            ]
         ).content
 
         return RagResponse(
@@ -153,41 +148,6 @@ class AgenticPipeline:
                 }
             )
         return extracted_docs
-
-    def _route(self, question: str) -> str:
-        intent = self._intent_matcher.match(question)
-        if intent.name == "product_availability":
-            return "product_availability"
-        if intent.name == "policy":
-            return "policy"
-        if intent.name == "logistics":
-            return "logistics"
-
-        q = question.lower()
-        if any(t in q for t in ["return", "refund", "replace", "warranty"]):
-            return "policy"
-        if any(t in q for t in ["delivery", "shipping", "track", "dispatch"]):
-            return "logistics"
-        if any(t in q for t in ["payment", "pay", "emi", "installment", "cod"]):
-            return "payment"
-        return "general"
-
-    def _expand_query(self, question: str, route: str) -> str:
-        q = question.lower()
-        if route == "product_availability" or (("product" in q or "products" in q) and (
-            "refurb" in q or "new" in q or "used" in q or "pre-owned" in q
-        )):
-            return (
-                f"{question} products availability new products refurbished products "
-                "certified refurbished"
-            )
-        if route == "policy":
-            return f"{question} return policy refund replacement warranty"
-        if route == "logistics":
-            return f"{question} shipping delivery tracking"
-        if route == "payment":
-            return f"{question} payment modes payment options EMI installment cash on delivery store credit"
-        return question
 
 
 

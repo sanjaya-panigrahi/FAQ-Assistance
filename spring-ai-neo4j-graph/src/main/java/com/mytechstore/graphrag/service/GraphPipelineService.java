@@ -142,9 +142,9 @@ public class GraphPipelineService {
 
         String graphContext = String.join("\n", graphFacts);
         String customerLabel = (customerId != null && !customerId.isBlank()) ? customerId.trim() : "the company";
-        String prompt = "You are Graph RAG FAQ assistant for " + customerLabel + ".\n"
-                                + "Use vector context and graph facts to answer. If the context provides a general policy and no product-specific"
-                                + " exception, answer with the general policy.\n\n"
+        String prompt = "You are a FAQ assistant for " + customerLabel + ". "
+            + "Answer the user's question using ONLY the provided FAQ context below. "
+            + "Answer concisely and factually.\n\n"
                 + "Vector context:\n" + vectorContext + "\n\n"
                 + "Graph facts:\n" + graphContext + "\n\n"
                 + "Question: " + question;
@@ -283,21 +283,9 @@ public class GraphPipelineService {
                 return nextFaqId;
         }
 
-        private String expandQuery(String question) {
-                String normalized = normalize(question);
-                LinkedHashSet<String> parts = new LinkedHashSet<>();
-                parts.add(question);
-                if (normalized.contains("return") || normalized.contains("refund") || normalized.contains("replace")) {
-                        parts.add("return policy returns refunds replacements defective items unopened items");
-                }
-                if (normalized.contains("warranty") || normalized.contains("damage") || normalized.contains("protection")) {
-                        parts.add("warranty extended warranty accidental damage protection repair coverage");
-                }
-                if (normalized.contains("delivery") || normalized.contains("shipping")) {
-                        parts.add("shipping delivery tracking express same-day order status");
-                }
-                return String.join(" ", parts);
-        }
+	private String expandQuery(String question) {
+		return question;
+	}
 
         private List<String> extractSearchTokens(String question) {
                 return Arrays.stream(normalize(question).split("\\s+"))

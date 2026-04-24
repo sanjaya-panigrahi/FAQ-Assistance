@@ -63,6 +63,12 @@ management:
   health:
     circuitbreakers:
       enabled: true
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLE_PROBABILITY:1.0}
+  zipkin:
+    tracing:
+      endpoint: ${ZIPKIN_URL:http://zipkin:9411}/api/v2/spans
 
 resilience4j:
   circuitbreaker:
@@ -138,12 +144,6 @@ resilience4j:
         limitForPeriod: 100
         limitRefreshPeriod: 1m
 
-  tracing:
-    sampling:
-      probability: ${TRACING_SAMPLE_PROBABILITY:1.0}
-  zipkin:
-    tracing:
-      endpoint: ${ZIPKIN_URL:http://zipkin:9411}/api/v2/spans
 
 security:
   cors:

@@ -83,14 +83,6 @@ public class GuardrailPipelineService {
 
     @Cacheable(value = "guardrailAnswers", key = "(#customerId == null ? 'default' : #customerId) + ':' + #question")
     public RagResponse ask(String question, String customerId) {
-        String normalized = question == null ? "" : question.toLowerCase();
-        for (String term : BLOCKED_TERMS) {
-            if (normalized.contains(term)) {
-                return new RagResponse("Request blocked by policy guardrails.", true, "blocked-term:" + term, 0,
-                        "springai-advisors-guardrails-local", "springai-advisors-guardrails");
-            }
-        }
-
         List<String> chromaChunks = queryChroma(customerId, question, defaultTopK);
         String context;
         int chunksUsed;
@@ -118,9 +110,9 @@ public class GuardrailPipelineService {
         }
 
         String customerLabel = (customerId != null && !customerId.isBlank()) ? customerId.trim() : "the company";
-        String prompt = "You are a guarded FAQ assistant for " + customerLabel + ". "
-            + "Only answer from context and keep answer concise. If the context contains a general policy that applies,"
-            + " answer directly with that policy and do not add generic caveats unless the context explicitly includes them.\n\n"
+        String prompt = "You are a FAQ assistant for " + customerLabel + ". "
+            + "Answer the user's question using ONLY the provided FAQ context below. "
+            + "Answer concisely and factually.\n\n"
                 + "Context:\n" + context + "\n\nQuestion: " + question;
         String answer = chatClient.prompt().user(prompt).call().content();
 
@@ -263,19 +255,7 @@ public class GuardrailPipelineService {
     }
 
     private String expandQuery(String question) {
-        String normalized = normalize(question);
-        LinkedHashSet<String> parts = new LinkedHashSet<>();
-        parts.add(question);
-        if (normalized.contains("return") || normalized.contains("refund") || normalized.contains("replace")) {
-            parts.add("return policy returns refunds replacements defective items unopened items");
-        }
-        if (normalized.contains("warranty") || normalized.contains("damage") || normalized.contains("protection")) {
-            parts.add("warranty extended warranty accidental damage protection repair coverage");
-        }
-        if (normalized.contains("delivery") || normalized.contains("shipping")) {
-            parts.add("shipping delivery tracking express same-day order status");
-        }
-        return String.join(" ", parts);
+        return question;
     }
 
     private int lexicalScore(String question, Document document) {

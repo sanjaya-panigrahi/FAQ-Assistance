@@ -38,6 +38,7 @@ langgraph==0.2.34
 tenacity==8.5.0
 
 # Distributed Tracing - OpenTelemetry + Zipkin
+setuptools>=70.0.0
 opentelemetry-api==1.27.0
 opentelemetry-sdk==1.27.0
 opentelemetry-exporter-zipkin==1.27.0

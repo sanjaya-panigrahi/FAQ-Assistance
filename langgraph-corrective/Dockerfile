@@ -16,7 +16,8 @@ RUN useradd --create-home appuser
 WORKDIR /app
 
 COPY --from=builder /wheels /wheels
-RUN pip install --no-cache-dir /wheels/* && rm -rf /wheels
+RUN pip install --no-cache-dir /wheels/* && rm -rf /wheels && \
+    pip install --no-cache-dir 'setuptools>=70.0.0,<82.0.0'
 
 COPY app ./app
 USER appuser

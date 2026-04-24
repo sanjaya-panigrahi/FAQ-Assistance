@@ -134,13 +134,12 @@ public class RetrievalPipelineService {
         String queryContext = request.queryContext() == null ? "" : request.queryContext().trim();
         int topK = validateTopK(request.topK() == null ? defaultTopK : request.topK());
         double threshold = validateThreshold(request.similarityThreshold() == null ? defaultThreshold : request.similarityThreshold());
-        SemanticIntentMatcher.IntentMatch intent = intentMatcher.match(question);
-        int effectiveTopK = "product_availability".equals(intent.name()) ? Math.max(topK, 8) : topK;
+        int effectiveTopK = topK;
 
         logger.debug("Query received - tenant: {}, question length: {}, idempotency_key: {}", 
             tenantId, question.length(), idempotencyKey);
 
-        String transformedQuery = transformQuery(question, queryContext, intent.name());
+        String transformedQuery = queryContext.isBlank() ? question : question + " " + queryContext;
 
         long retrievalStart = System.currentTimeMillis();
         List<ChunkCandidate> candidates = hybridRetrieve(tenantId, transformedQuery, Math.max(effectiveTopK * 4, effectiveTopK));
@@ -177,7 +176,7 @@ public class RetrievalPipelineService {
             tenantId,
             question,
             transformedQuery,
-            "semantic-intent:" + intent.name() + "+query-transform+hybrid-retrieval+rerank+grounded-generation",
+            "query-transform+hybrid-retrieval+rerank+grounded-generation",
             answer,
             chunks.size(),
             !chunks.isEmpty(),
@@ -270,50 +269,10 @@ public class RetrievalPipelineService {
     }
 
     private String transformQuery(String question, String queryContext, String intentName) {
-        String q = question.toLowerCase(Locale.ROOT);
-        LinkedHashSet<String> expansions = new LinkedHashSet<>();
-
-        if ("product_availability".equals(intentName)
-            || ((q.contains("product") || q.contains("products"))
-                && (q.contains("new") || q.contains("refurb") || q.contains("used") || q.contains("pre-owned")))) {
-            expansions.add("products availability");
-            expansions.add("new products");
-            expansions.add("refurbished products");
-            expansions.add("certified refurbished");
-            expansions.add("6-month warranty");
+        if (queryContext != null && !queryContext.isBlank()) {
+            return question + " " + queryContext;
         }
-
-        if ("policy".equals(intentName) || q.contains("return") || q.contains("refund") || q.contains("exchange")) {
-            expansions.add("return policy");
-            expansions.add("refund eligibility");
-            expansions.add("defective items");
-            expansions.add("unopened products");
-        }
-        if ("logistics".equals(intentName) || q.contains("shipping") || q.contains("delivery")) {
-            expansions.add("shipping zones");
-            expansions.add("delivery timelines");
-            expansions.add("international shipping");
-        }
-        if ("policy".equals(intentName) || q.contains("warranty") || q.contains("guarantee")) {
-            expansions.add("warranty coverage");
-            expansions.add("replacement process");
-        }
-        if ("payment".equals(intentName) || q.contains("payment") || q.contains("pay") || q.contains("emi") || q.contains("installment") || q.contains("cod")) {
-            expansions.add("payment modes");
-            expansions.add("payment options");
-            expansions.add("EMI installment");
-            expansions.add("cash on delivery");
-            expansions.add("store credit");
-        }
-
-        String transformed = question;
-        if (!expansions.isEmpty()) {
-            transformed = transformed + " | related: " + String.join(", ", expansions);
-        }
-        if (!queryContext.isBlank()) {
-            transformed = transformed + " | context: " + queryContext;
-        }
-        return transformed;
+        return question;
     }
 
     private List<ChunkCandidate> hybridRetrieve(String tenantId, String transformedQuery, int fetchTopK) {
@@ -417,10 +376,8 @@ public class RetrievalPipelineService {
                 .append("\n\n");
         }
 
-        String prompt = "You are a support assistant for a tech store. Answer using ONLY facts from the provided context. "
-            + "If the context contains a general policy (e.g. return policy, payment modes, warranty), apply it directly to the specific product the user asks about. "
-            + "Do not say the information is missing if a general policy covers it. "
-            + "Cite evidence as [1], [2]. Do not invent facts or add caveats not in the context.\n\n"
+        String prompt = "You are a FAQ assistant. Answer the user's question using ONLY the provided FAQ context below. "
+            + "Answer concisely and factually.\n\n"
             + "Question: " + question + "\n\n"
             + "Context:\n" + context;
 

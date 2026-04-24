@@ -115,22 +115,9 @@ class RetrievalPipeline:
 
     def _node_transform_query(self, state: RetrievalState) -> RetrievalState:
         request = state["request"]
-        normalized = request.question.lower()
-        expansions: list[str] = []
-
-        if "return" in normalized or "refund" in normalized:
-            expansions.append("return policy refund window")
-        if "shipping" in normalized or "delivery" in normalized:
-            expansions.append("shipping time delivery options")
-        if "warranty" in normalized or "guarantee" in normalized:
-            expansions.append("warranty coverage support")
-        if request.queryContext:
-            expansions.append(request.queryContext.strip())
-
         transformed_query = request.question.strip()
-        if expansions:
-            transformed_query = f"{transformed_query} {' '.join(expansions)}".strip()
-
+        if request.queryContext:
+            transformed_query = f"{transformed_query} {request.queryContext.strip()}"
         return {"transformed_query": transformed_query}
 
     def _node_hybrid_retrieve(self, state: RetrievalState) -> RetrievalState:
@@ -234,14 +221,12 @@ class RetrievalPipeline:
             [
                 (
                     "system",
-                    f"You are a support assistant for {customer_label}. Answer using ONLY facts from the provided context. "
-                    "If the context contains a general policy (e.g. return policy, warranty), apply it directly to the specific product the user asks about. "
-                    "Do not say the information is missing if a general policy covers it. "
-                    "Do not invent facts or add caveats not in the context.",
+                    f"You are a FAQ assistant for {customer_label}. Answer the user's question using ONLY the provided FAQ context below. "
+                    "Answer concisely and factually.",
                 ),
                 (
                     "human",
-                    f"Question: {request.question}\n\nContext:\n{context}\n\nReturn a concise answer and cite chunk numbers in brackets.",
+                    f"Question: {request.question}\n\nContext:\n{context}",
                 ),
             ]
         )

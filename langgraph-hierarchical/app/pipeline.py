@@ -26,9 +26,6 @@ class HierarchicalPipeline:
         return 0
 
     def ask(self, question: str, customer_id: str | None = None) -> RagResponse:
-        selected_section = self._select_section(question)
-        query = f"{question} {selected_section}".strip()
-
         tenant = (customer_id or "default").strip()
         collection = f"{settings.chroma_collection_prefix}{tenant}"
 
@@ -38,30 +35,30 @@ class HierarchicalPipeline:
             collection_name=collection,
             embedding_function=embeddings,
         )
-        docs = vector_store.similarity_search(query, k=6)
+        docs = vector_store.similarity_search(question, k=6)
         if not docs:
             return RagResponse(
                 answer=NO_CONTEXT_ANSWER,
                 chunksUsed=0,
                 strategy="chroma-direct+fallback-no-context",
                 orchestrationStrategy="langgraph-hierarchy-multistep",
-                selectedSection=selected_section,
             )
         context = "\n\n".join(doc.page_content for doc in docs)
 
         llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
         customer_label = (tenant or "the company").strip()
         answer = llm.invoke(
-            (
-                f"You are hierarchical RAG assistant for {customer_label}. "
-                "Answer using ONLY the FAQ context provided below. "
-                "If the context contains a general policy (e.g. return policy, warranty), apply it directly to the specific product the user asks about. "
-                "Do not say the information is missing if a general policy covers it. "
-                "Do not invent facts or add caveats not present in the context.\n\n"
-                f"Section selected: {selected_section}\n"
-                f"Question: {question}\n\n"
-                f"FAQ Context:\n{context}"
-            )
+            [
+                (
+                    "system",
+                    f"You are a FAQ assistant for {customer_label}. Answer the user's question using ONLY the provided FAQ context below. "
+                    "Answer concisely and factually.",
+                ),
+                (
+                    "human",
+                    f"Question: {question}\n\nFAQ Context:\n{context}",
+                ),
+            ]
         ).content
 
         return RagResponse(
@@ -69,21 +66,7 @@ class HierarchicalPipeline:
             chunksUsed=len(docs),
             strategy="chroma-direct+langgraph-hierarchy",
             orchestrationStrategy="langgraph-hierarchy-multistep",
-            selectedSection=selected_section,
         )
 
-    def _select_section(self, question: str) -> str:
-        q = question.lower()
-        if any(t in q for t in ["return", "refund", "replacement", "exchange"]):
-            return "Returns and Refunds"
-        if any(t in q for t in ["shipping", "delivery", "track", "dispatch"]):
-            return "Shipping and Delivery"
-        if any(t in q for t in ["warranty", "guarantee", "repair"]):
-            return "Warranty and Support"
-        return "General FAQ"
 
-    @staticmethod
-    def _extract_deterministic_return_policy(question: str, context: str) -> str | None:
-        q = (question or "").lower()
-        if "return" not in q or "policy" not in q:
-            return "Returns and Refunds"
+pipeline = HierarchicalPipeline()

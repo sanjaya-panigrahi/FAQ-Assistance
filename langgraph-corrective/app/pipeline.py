@@ -37,12 +37,6 @@ class CorrectivePipeline:
         )
 
         docs = vector_store.similarity_search(question, k=6)
-        if len(docs) < 2:
-            retry_query = f"{question} return policy warranty shipping payment support"
-            docs = vector_store.similarity_search(retry_query, k=6)
-            quality = "weak-retried"
-        else:
-            quality = "good"
 
         if not docs:
             return RagResponse(
@@ -56,15 +50,17 @@ class CorrectivePipeline:
 
         llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
         answer = llm.invoke(
-            (
-                "You are a corrective RAG assistant. Answer using ONLY the FAQ context provided below. "
-                "If the context contains a general policy (e.g. return policy, warranty), apply it directly to the specific product the user asks about. "
-                "Do not say the information is missing if a general policy covers it. "
-                "Do not invent facts or add caveats not present in the context.\n\n"
-                f"Retrieval quality: {quality}\n"
-                f"Question: {question}\n\n"
-                f"FAQ Context:\n{context}"
-            )
+            [
+                (
+                    "system",
+                    "You are a FAQ assistant. Answer the user's question using ONLY the provided FAQ context below. "
+                    "Answer concisely and factually.",
+                ),
+                (
+                    "human",
+                    f"Question: {question}\n\nFAQ Context:\n{context}",
+                ),
+            ]
         ).content
 
         return RagResponse(

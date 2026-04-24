@@ -148,10 +148,10 @@ public class RagService {
             document.setChunkCount(chunks.size());
             log.info("Created {} chunks from document", chunks.size());
 
-            // 7. Ensure customer collection exists
+            // 7. Ensure customer collection exists in ChromaDB
             String collectionName = customer.getCollectionName();
-            if (collectionName == null) {
-                Map<String, Object> collection = chromadbService.createCollection(customerId, null);
+            if (collectionName == null || chromadbService.getCollection(collectionName) == null) {
+                Map<String, Object> collection = chromadbService.createCollection(customerId, collectionName);
                 if (collection == null) {
                     throw new IllegalStateException("Failed to create or resolve customer collection in ChromaDB");
                 }
