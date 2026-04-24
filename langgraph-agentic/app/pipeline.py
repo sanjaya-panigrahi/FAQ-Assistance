@@ -3,7 +3,6 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-import chromadb
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
 from .config import settings

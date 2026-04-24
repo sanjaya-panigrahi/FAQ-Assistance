@@ -19,7 +19,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import java.time.Duration;
 import java.util.HashMap;
-import com.mytechstore.shared.registry.FAQPatternRegistry;
 
 import jakarta.annotation.PreDestroy;
 
@@ -63,7 +62,6 @@ public class StructuredPipelineService {
     private final EmbeddingModel embeddingModel;
     private final String chromaUrl;
     private final String collectionPrefix;
-    private final FAQPatternRegistry patternRegistry = new FAQPatternRegistry();
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final WebClient webClient;
     private final int defaultTopK;
@@ -321,7 +319,7 @@ public class StructuredPipelineService {
                 .limit(topK)
                 .toList();
         List<Document> vectorHits = vectorStore.similaritySearch(
-                SearchRequest.builder().query(expandQuery(question)).topK(topK).build());
+                SearchRequest.builder().query(question).topK(topK).build());
 
         LinkedHashMap<String, Document> merged = new LinkedHashMap<>();
         for (Document document : lexicalHits) {
@@ -331,10 +329,6 @@ public class StructuredPipelineService {
             merged.putIfAbsent(document.getText(), document);
         }
         return merged.values().stream().limit(topK).toList();
-    }
-
-    private String expandQuery(String question) {
-        return question;
     }
 
     private int lexicalScore(String question, Document document) {
@@ -361,62 +355,5 @@ public class StructuredPipelineService {
 
     private String normalize(String value) {
         return value == null ? "" : value.toLowerCase().replaceAll("[^a-z0-9 ]", " ").replaceAll("\\s+", " ").trim();
-    }
-
-    private String selectSection(String question) {
-        String lower = normalize(question);
-
-        String section = findSection(lower,
-                List.of("return", "refund", "replace", "defect"),
-                List.of("Returns, Refunds, and Replacements", "Returns and Warranty"));
-        if (section != null) {
-            return section;
-        }
-
-        section = findSection(lower,
-                List.of("warranty", "damage", "protection", "repair"),
-                List.of("Warranty and Protection Plans", "Returns and Warranty"));
-        if (section != null) {
-            return section;
-        }
-
-        section = findSection(lower,
-                List.of("shipping", "delivery", "track", "pickup", "order status"),
-                List.of("Shipping and Delivery Details", "Shipping and Delivery"));
-        if (section != null) {
-            return section;
-        }
-
-        section = findSection(lower,
-                List.of("order", "checkout", "cancel", "invoice", "payment"),
-                List.of("Orders and Checkout", "Pricing and Payments"));
-        if (section != null) {
-            return section;
-        }
-
-        section = findSection(lower,
-                List.of("branch", "store", "support", "contact"),
-                List.of("In-Store Services and Branch Support", "Branches and Support", "Support and Policies"));
-        if (section != null) {
-            return section;
-        }
-
-        return sectionHeaders.stream()
-                .filter(h -> lower.contains(firstWord(h).toLowerCase()))
-                .findFirst()
-                .orElse("General FAQ");
-    }
-
-    private String findSection(String lower, List<String> keywords, List<String> candidates) {
-        boolean matches = keywords.stream().anyMatch(lower::contains);
-        if (!matches) {
-            return null;
-        }
-        return candidates.stream().filter(sectionHeaders::contains).findFirst().orElse(null);
-    }
-
-    private String firstWord(String text) {
-        int idx = text.indexOf(' ');
-        return idx > 0 ? text.substring(0, idx) : text;
     }
 }

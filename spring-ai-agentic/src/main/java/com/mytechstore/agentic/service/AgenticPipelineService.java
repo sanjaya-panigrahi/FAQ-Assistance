@@ -15,7 +15,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import java.time.Duration;
 import java.util.HashMap;
-import com.mytechstore.shared.registry.FAQPatternRegistry;
 
 import com.mytechstore.agentic.dto.RagResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -48,7 +47,6 @@ public class AgenticPipelineService {
     private final EmbeddingModel embeddingModel;
     private final String chromaUrl;
     private final String collectionPrefix;
-    private final FAQPatternRegistry patternRegistry = new FAQPatternRegistry();
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final WebClient webClient;
     private final int defaultTopK;
@@ -249,7 +247,7 @@ public class AgenticPipelineService {
             .limit(topK)
                 .toList();
         List<Document> vectorHits = vectorStore.similaritySearch(
-            SearchRequest.builder().query(expandQuery(question)).topK(topK).build());
+            SearchRequest.builder().query(question).topK(topK).build());
 
         LinkedHashMap<String, Document> merged = new LinkedHashMap<>();
         for (Document document : lexicalHits) {
@@ -260,10 +258,6 @@ public class AgenticPipelineService {
         }
 
         return merged.values().stream().limit(topK).toList();
-    }
-
-    private String expandQuery(String question) {
-        return question;
     }
 
     private int lexicalScore(String question, Document document) {

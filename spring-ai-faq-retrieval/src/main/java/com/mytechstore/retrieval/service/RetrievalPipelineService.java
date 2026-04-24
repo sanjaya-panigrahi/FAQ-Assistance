@@ -59,7 +59,6 @@ public class RetrievalPipelineService {
     private final ObjectMapper objectMapper;
     private final WebClient webClient;
     private final RedisTemplate<String, Object> redisTemplate;
-    private final SemanticIntentMatcher intentMatcher;
 
     private final String chromaUrl;
     private final String collectionPrefix;
@@ -86,7 +85,6 @@ public class RetrievalPipelineService {
         this.embeddingModel = embeddingModel;
         this.objectMapper = objectMapper;
         this.redisTemplate = redisTemplate;
-        this.intentMatcher = new SemanticIntentMatcher(embeddingModel);
         this.webClient = WebClient.builder().build();
         this.chromaUrl = chromaUrl;
         this.collectionPrefix = collectionPrefix;
@@ -200,7 +198,7 @@ public class RetrievalPipelineService {
         return new RetrievalQueryResponse(
             request.tenantId() != null ? request.tenantId() : defaultTenant,
             request.question(),
-            transformQuery(request.question(), request.queryContext() != null ? request.queryContext() : "", "general"),
+            transformQuery(request.question(), request.queryContext() != null ? request.queryContext() : ""),
             "fallback",
             "Service temporarily unavailable. Please try again later.",
             0,
@@ -268,7 +266,7 @@ public class RetrievalPipelineService {
         return threshold;
     }
 
-    private String transformQuery(String question, String queryContext, String intentName) {
+    private String transformQuery(String question, String queryContext) {
         if (queryContext != null && !queryContext.isBlank()) {
             return question + " " + queryContext;
         }
@@ -383,31 +381,6 @@ public class RetrievalPipelineService {
 
         String response = chatClient.prompt().user(prompt).call().content();
         return response == null ? "No answer generated." : response;
-    }
-
-    private String extractProductAvailabilityAnswer(String question, List<ChunkCandidate> chunks) {
-        String q = question == null ? "" : question.toLowerCase(Locale.ROOT);
-        boolean productAvailabilityQuestion = (q.contains("product") || q.contains("products"))
-            && (q.contains("new") || q.contains("refurb") || q.contains("used") || q.contains("pre-owned"));
-        if (!productAvailabilityQuestion) {
-            return null;
-        }
-
-        String context = chunks.stream()
-            .map(c -> c.content == null ? "" : c.content)
-            .reduce("", (a, b) -> a + "\n" + b)
-            .toLowerCase(Locale.ROOT);
-
-        boolean hasAvailabilityFact = context.contains("new products") && context.contains("refurbished");
-        boolean hasWarrantyFact = context.contains("minimum 6-month warranty") || context.contains("6-month warranty");
-
-        if (hasAvailabilityFact && hasWarrantyFact) {
-            return "Yes, we sell both new and refurbished products. Refurbished devices are certified, tested, and include a minimum 6-month warranty.";
-        }
-        if (hasAvailabilityFact) {
-            return "Yes, we sell both new and refurbished products.";
-        }
-        return null;
     }
 
     private String resolveCollectionId(String collectionName) {

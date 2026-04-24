@@ -15,7 +15,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import java.time.Duration;
 import java.util.HashMap;
-import com.mytechstore.shared.registry.FAQPatternRegistry;
 
 import com.mytechstore.guardrails.dto.RagResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -34,7 +33,6 @@ import org.springframework.web.reactive.function.client.WebClient;
 @Service
 public class GuardrailPipelineService {
 
-    private static final Set<String> BLOCKED_TERMS = Set.of("password", "credit card", "hack", "exploit");
     private static final Set<String> STOP_WORDS = Set.of(
             "a", "an", "and", "are", "at", "be", "by", "can", "do", "for", "from", "how", "i", "if",
             "in", "is", "it", "me", "my", "of", "on", "or", "the", "to", "we", "what", "when", "where",
@@ -49,7 +47,6 @@ public class GuardrailPipelineService {
     private final EmbeddingModel embeddingModel;
     private final String chromaUrl;
     private final String collectionPrefix;
-    private final FAQPatternRegistry patternRegistry = new FAQPatternRegistry();
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final WebClient webClient;
     private final int defaultTopK;
@@ -242,7 +239,7 @@ public class GuardrailPipelineService {
                 .limit(topK)
                 .toList();
         List<Document> vectorHits = vectorStore.similaritySearch(
-                SearchRequest.builder().query(expandQuery(question)).topK(topK).build());
+                SearchRequest.builder().query(question).topK(topK).build());
 
         LinkedHashMap<String, Document> merged = new LinkedHashMap<>();
         for (Document document : lexicalHits) {
@@ -252,10 +249,6 @@ public class GuardrailPipelineService {
             merged.putIfAbsent(document.getText(), document);
         }
         return merged.values().stream().limit(topK).toList();
-    }
-
-    private String expandQuery(String question) {
-        return question;
     }
 
     private int lexicalScore(String question, Document document) {

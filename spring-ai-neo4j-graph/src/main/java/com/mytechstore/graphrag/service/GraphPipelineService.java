@@ -121,7 +121,7 @@ public class GraphPipelineService {
                                 rebuildIndex();
                         }
                         List<Document> vectorHits = vectorStore.similaritySearch(
-                                        SearchRequest.builder().query(expandQuery(question)).topK(defaultTopK).build());
+                                        SearchRequest.builder().query(question).topK(defaultTopK).build());
                         vectorContext = vectorHits.stream().map(Document::getText).collect(Collectors.joining("\n\n"));
                         vectorCount = vectorHits.size();
                 }
@@ -282,10 +282,6 @@ public class GraphPipelineService {
                 )));
                 return nextFaqId;
         }
-
-	private String expandQuery(String question) {
-		return question;
-	}
 
         private List<String> extractSearchTokens(String question) {
                 return Arrays.stream(normalize(question).split("\\s+"))
