@@ -531,13 +531,22 @@ services:
       - "9191:9191"
     environment:
       APP_PORT: 9191
+      ENTRYPOINT_MODE: api
       ANALYTICS_DB_HOST: analytics-mysql
       ANALYTICS_DB_PORT: 3306
       ANALYTICS_DB_NAME: rag_analytics
       ANALYTICS_DB_USER: analytics
       ANALYTICS_DB_PASSWORD: ${ANALYTICS_MYSQL_PASSWORD}
+      REDIS_HOST: redis-cache
+      CELERY_BROKER_URL: redis://redis-cache:6379/6
+      CELERY_RESULT_BACKEND: redis://redis-cache:6379/7
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      LLM_SCORING_ENABLED: ${LLM_SCORING_ENABLED:-true}
+      LLM_JUDGE_MODEL: ${LLM_JUDGE_MODEL:-gpt-4o-mini}
     depends_on:
       analytics-mysql:
+        condition: service_healthy
+      redis-cache:
         condition: service_healthy
     networks:
       - faq-network
@@ -547,6 +556,32 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+    restart: unless-stopped
+
+  rag-analytics-worker:
+    build:
+      context: ./rag-analytics
+      dockerfile: Dockerfile
+    container_name: rag-analytics-worker
+    environment:
+      ENTRYPOINT_MODE: worker
+      ANALYTICS_DB_HOST: analytics-mysql
+      ANALYTICS_DB_PORT: 3306
+      ANALYTICS_DB_NAME: rag_analytics
+      ANALYTICS_DB_USER: analytics
+      ANALYTICS_DB_PASSWORD: ${ANALYTICS_MYSQL_PASSWORD}
+      REDIS_HOST: redis-cache
+      CELERY_BROKER_URL: redis://redis-cache:6379/6
+      CELERY_RESULT_BACKEND: redis://redis-cache:6379/7
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      LLM_JUDGE_MODEL: ${LLM_JUDGE_MODEL:-gpt-4o-mini}
+    depends_on:
+      analytics-mysql:
+        condition: service_healthy
+      redis-cache:
+        condition: service_healthy
+    networks:
+      - faq-network
     restart: unless-stopped
 
   # Distributed Tracing - Zipkin

@@ -1,9 +1,12 @@
+import time
+
 import chromadb
 
 from langchain_chroma import Chroma
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_community.graphs import Neo4jGraph
 
+from .analytics_client import post_analytics_event
 from .config import settings
 from .faq_parser import parse_faq_documents
 from .schemas import RagResponse
@@ -87,6 +90,7 @@ class GraphPipeline:
         return len(docs)
 
     def ask(self, question: str, customer_id: str | None = None) -> RagResponse:
+        _t0 = time.perf_counter()
         tenant = (customer_id or "default").strip()
         collection = f"{settings.chroma_collection_prefix}{tenant}"
 
@@ -136,12 +140,20 @@ class GraphPipeline:
             [SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)]
         ).content
 
-        return RagResponse(
+        response = RagResponse(
             answer=str(answer),
             graphFacts=len(rows),
             strategy="chroma-direct+neo4j-graph",
             orchestrationStrategy="langchain-graph-prototype",
         )
+        post_analytics_event(
+            question=question, response_text=response.answer,
+            customer_id=customer_id or "default", rag_pattern="neo4j-graph",
+            framework="langchain", strategy=response.strategy,
+            latency_ms=int((time.perf_counter() - _t0) * 1000),
+            context_docs=f"{vector_context}\n\n{graph_context}".strip(),
+        )
+        return response
 
 
 pipeline = GraphPipeline()

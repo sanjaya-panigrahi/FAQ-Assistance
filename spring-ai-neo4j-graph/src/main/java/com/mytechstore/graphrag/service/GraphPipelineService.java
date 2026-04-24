@@ -53,8 +53,7 @@ public class GraphPipelineService {
         private final ObjectMapper objectMapper = new ObjectMapper();
         private final WebClient webClient;
         private final int defaultTopK;
-
-    public GraphPipelineService(VectorStore vectorStore,
+    private final AnalyticsReporter analyticsReporter;
                                 Neo4jClient neo4jClient,
                                 ChatClient chatClient,
                                                         @Value("${faq.source-file}") String sourceFile,
@@ -72,8 +71,7 @@ public class GraphPipelineService {
                 this.collectionPrefix = collectionPrefix;
                 this.defaultTopK = defaultTopK;
            this.webClient = webClient;
-    }
-
+        this.analyticsReporter = analyticsReporter;
         @CacheEvict(value = {"graphAnswers", "graphChroma"}, allEntries = true)
         public synchronized String rebuildIndex() {
         List<Document> docs = parseFaqDocuments();
@@ -150,8 +148,12 @@ public class GraphPipelineService {
                 + "Question: " + question;
         String answer = chatClient.prompt().user(prompt).call().content();
 
-        return new RagResponse(answer, vectorCount, graphFacts.size(), "chroma-direct+neo4j-graph",
+        RagResponse response = new RagResponse(answer, vectorCount, graphFacts.size(), "chroma-direct+neo4j-graph",
                 "springai-neo4j-graph");
+        analyticsReporter.postEvent(question, answer, customerId != null ? customerId : "default",
+                "neo4j-graph", "chroma-direct+neo4j-graph", 0,
+                vectorContext + "\n\n" + graphContext);
+        return response;
     }
 
         private List<String> queryChroma(String customerId, String question, int topK) {

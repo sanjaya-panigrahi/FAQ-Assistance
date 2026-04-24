@@ -50,6 +50,7 @@ public class GuardrailPipelineService {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final WebClient webClient;
     private final int defaultTopK;
+    private final AnalyticsReporter analyticsReporter;
 
     public GuardrailPipelineService(VectorStore vectorStore,
                                     ChatClient chatClient,
@@ -58,7 +59,8 @@ public class GuardrailPipelineService {
                                     @Value("${chroma.url:http://chroma-faq:8000}") String chromaUrl,
                                     @Value("${chroma.collection-prefix:faq_}") String collectionPrefix,
                                     @Value("${retrieval.top-k:6}") int defaultTopK,
-                                    WebClient webClient) {
+                                WebClient webClient,
+                                AnalyticsReporter analyticsReporter) {
         this.vectorStore = vectorStore;
         this.chatClient = chatClient;
         this.sourceFile = sourceFile;
@@ -67,6 +69,7 @@ public class GuardrailPipelineService {
         this.collectionPrefix = collectionPrefix;
         this.defaultTopK = defaultTopK;
         this.webClient = webClient;
+        this.analyticsReporter = analyticsReporter;
     }
 
     @CacheEvict(value = "guardrailAnswers", allEntries = true)
@@ -113,8 +116,11 @@ public class GuardrailPipelineService {
                 + "Context:\n" + context + "\n\nQuestion: " + question;
         String answer = chatClient.prompt().user(prompt).call().content();
 
-        return new RagResponse(answer, false, "ok", chunksUsed, "chroma-direct+corrective-guardrails",
+        RagResponse response = new RagResponse(answer, false, "ok", chunksUsed, "chroma-direct+corrective-guardrails",
                 "springai-advisors-guardrails");
+        analyticsReporter.postEvent(question, answer, customerId != null ? customerId : "default",
+                "corrective", "chroma-direct+corrective-guardrails", 0, context);
+        return response;
     }
 
     private List<String> queryChroma(String customerId, String question, int topK) {

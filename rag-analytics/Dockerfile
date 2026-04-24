@@ -23,4 +23,7 @@ COPY app ./app
 USER appuser
 
 EXPOSE 9191
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${APP_PORT}"]
+
+# ENTRYPOINT_MODE: "api" (default) or "worker" (Celery)
+ENV ENTRYPOINT_MODE=api
+CMD ["sh", "-c", "if [ \"$ENTRYPOINT_MODE\" = 'worker' ]; then celery -A app.worker.celery_app worker --loglevel=info --concurrency=2; else uvicorn app.main:app --host 0.0.0.0 --port ${APP_PORT}; fi"]

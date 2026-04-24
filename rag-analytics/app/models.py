@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
@@ -32,5 +32,10 @@ class QueryEvent(Base):
     rerank_ms: Mapped[int] = mapped_column(Integer, default=0)
     generation_ms: Mapped[int] = mapped_column(Integer, default=0)
     post_checks_ms: Mapped[int] = mapped_column(Integer, default=0)
+
+    # LLM-as-Judge fields
+    context_docs: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
+    llm_scored: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    judge_explanations: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)

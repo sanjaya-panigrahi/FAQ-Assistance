@@ -1189,3 +1189,64 @@ button:disabled {
     transform: translateY(-20px) scale(1.08);
   }
 }
+
+/* LLM Scoring Badges */
+.scoring-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.scoring-badge.llm-scored {
+  background: #e8f5e9;
+  color: #2e7d32;
+  border: 1px solid #a5d6a7;
+}
+.scoring-badge.heuristic-scored {
+  background: #fff3e0;
+  color: #e65100;
+  border: 1px solid #ffcc80;
+}
+
+/* Score Distribution Chart */
+.score-distribution-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0;
+}
+.distribution-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.distribution-label {
+  width: 60px;
+  font-size: 0.78rem;
+  color: var(--text-secondary, #5f6368);
+  text-align: right;
+  flex-shrink: 0;
+}
+.distribution-bar-container {
+  flex: 1;
+  height: 20px;
+  background: var(--surface-subtle, #f1f3f4);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.distribution-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #4285f4, #34a853);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+.distribution-count {
+  width: 36px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-primary, #202124);
+  text-align: left;
+  flex-shrink: 0;
+}

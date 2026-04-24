@@ -10,6 +10,7 @@ from langchain_chroma import Chroma
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langgraph.graph import END, START, StateGraph
 
+from .analytics_client import post_analytics_event
 from .config import settings
 from .schemas import RetrievedChunk, RetrievalQueryRequest, RetrievalQueryResponse
 
@@ -100,6 +101,14 @@ class RetrievalPipeline:
             retrievalLatencyMs=retrieval_latency_ms,
             generationLatencyMs=generation_latency_ms,
             chunks=response_chunks,
+        )
+
+        post_analytics_event(
+            question=request.question, response_text=answer,
+            customer_id=request.tenantId or "default", rag_pattern="retrieval",
+            framework="langgraph", strategy=response.strategy,
+            latency_ms=total_latency_ms,
+            context_docs="\n\n".join(c["content"] for c in ranked_chunks),
         )
 
         try:

@@ -1,8 +1,11 @@
+import time
+
 import chromadb
 
 from langchain_chroma import Chroma
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
+from .analytics_client import post_analytics_event
 from .config import settings
 from .schemas import RagResponse
 
@@ -26,6 +29,7 @@ class AgenticPipeline:
         return 0  # Index managed by faq-ingestion service (port 9000)
 
     def ask(self, question: str, customer_id: str | None = None) -> RagResponse:
+        _t0 = time.perf_counter()
         collection_name = f"{settings.chroma_collection_prefix}{customer_id or 'default'}"
         try:
             client = chromadb.HttpClient(host=settings.chroma_host, port=settings.chroma_port)
@@ -68,12 +72,20 @@ class AgenticPipeline:
         )
         answer = str(result.content).strip()
 
-        return RagResponse(
+        response = RagResponse(
             answer=answer or "No answer generated.",
             chunksUsed=len(docs),
             strategy="chroma-direct+langchain-llm",
             orchestrationStrategy="langchain-agent",
         )
+        post_analytics_event(
+            question=question, response_text=response.answer,
+            customer_id=customer_id or "default", rag_pattern="agentic",
+            framework="langchain", strategy=response.strategy,
+            latency_ms=int((time.perf_counter() - _t0) * 1000),
+            context_docs=combined_context,
+        )
+        return response
 
 
 

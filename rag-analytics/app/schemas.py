@@ -27,6 +27,8 @@ class QueryMetricIn(BaseModel):
     generationMs: Optional[int] = Field(default=None, ge=0)
     postChecksMs: Optional[int] = Field(default=None, ge=0)
 
+    contextDocs: Optional[str] = Field(default=None, description="Retrieved context documents for LLM scoring")
+
 
 class QueryMetricBatchIn(BaseModel):
     events: list[QueryMetricIn]
@@ -51,6 +53,34 @@ class RecentRun(BaseModel):
     latencyMs: int
     effectiveRagScore: float
     strategy: str
+    llmScored: bool = False
+    retrievalQuality: Optional[float] = None
+    groundedCorrectness: Optional[float] = None
+    safety: Optional[float] = None
+    latencyEfficiency: Optional[float] = None
+    judgeExplanations: Optional[dict] = None
+
+
+class ScoreDistributionBucket(BaseModel):
+    bucket: str
+    count: int
+
+
+class SubScoreBreakdown(BaseModel):
+    framework: str
+    ragPattern: str
+    avgRetrievalQuality: float
+    avgGroundedCorrectness: float
+    avgSafety: float
+    avgLatencyEfficiency: float
+    avgEffectiveRagScore: float
+    llmScoredCount: int
+    heuristicCount: int
+
+
+class ScoreDistributionResponse(BaseModel):
+    distribution: list[ScoreDistributionBucket]
+    subscoreBreakdown: list[SubScoreBreakdown]
 
 
 class DashboardResponse(BaseModel):

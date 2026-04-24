@@ -125,6 +125,7 @@ function App() {
   const [dashboardSummary, setDashboardSummary] = useState([]);
   const [recentRuns, setRecentRuns] = useState([]);
   const [analyticsVisible, setAnalyticsVisible] = useState(false);
+  const [scoreDistribution, setScoreDistribution] = useState(null);
   const [analyticsCustomerFilter, setAnalyticsCustomerFilter] = useState("all");
   const [analyticsFrameworkFilter, setAnalyticsFrameworkFilter] = useState("all");
   const [analyticsPatternFilter, setAnalyticsPatternFilter] = useState("all");
@@ -1094,10 +1095,22 @@ function App() {
       if (failed.length > 0) {
         setDashboardError(`Loaded partial analytics data (${successful.length}/${results.length} views).`);
       }
+
+      // Fetch score distribution data
+      try {
+        const distResponse = await fetch(`${analyticsApiUrl}/score-distribution?days=7`);
+        if (distResponse.ok) {
+          const distData = await distResponse.json();
+          setScoreDistribution(distData);
+        }
+      } catch {
+        // Score distribution is optional — don't block dashboard
+      }
     } catch (requestError) {
       setDashboardRows([]);
       setDashboardSummary([]);
       setRecentRuns([]);
+      setScoreDistribution(null);
       setDashboardError(requestError.message || "Analytics dashboard is currently unavailable.");
     } finally {
       setDashboardLoading(false);
@@ -2365,6 +2378,10 @@ function App() {
                         <th>Status</th>
                         <th>Latency</th>
                         <th>Score</th>
+                        <th>RQ</th>
+                        <th>GC</th>
+                        <th>Safety</th>
+                        <th>Scored By</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -2376,6 +2393,14 @@ function App() {
                           <td>{row.status}</td>
                           <td>{row.latencyMs} ms</td>
                           <td>{Number(row.effectiveRagScore).toFixed(3)}</td>
+                          <td>{row.retrievalQuality != null ? Number(row.retrievalQuality).toFixed(2) : "—"}</td>
+                          <td>{row.groundedCorrectness != null ? Number(row.groundedCorrectness).toFixed(2) : "—"}</td>
+                          <td>{row.safety != null ? Number(row.safety).toFixed(2) : "—"}</td>
+                          <td>
+                            <span className={`scoring-badge ${row.llmScored ? "llm-scored" : "heuristic-scored"}`}>
+                              {row.llmScored ? "LLM" : "Heuristic"}
+                            </span>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -2430,6 +2455,80 @@ function App() {
               </div>
             )}
           </div>
+
+          {scoreDistribution && (
+          <div className="analytics-grid">
+            <div className="manager-panel">
+              <p className="meta-title">Score Distribution (Last 7 Days)</p>
+              {(!scoreDistribution.distribution || scoreDistribution.distribution.length === 0) ? (
+                <p className="supporting-note">No score distribution data available.</p>
+              ) : (
+                <div className="score-distribution-chart">
+                  {scoreDistribution.distribution.map((bucket) => {
+                    const maxCount = Math.max(...scoreDistribution.distribution.map(b => b.count), 1);
+                    const barWidth = Math.max((bucket.count / maxCount) * 100, 2);
+                    return (
+                      <div key={bucket.bucket} className="distribution-bar-row">
+                        <span className="distribution-label">{bucket.bucket}</span>
+                        <div className="distribution-bar-container">
+                          <div
+                            className="distribution-bar"
+                            style={{ width: `${barWidth}%` }}
+                          />
+                        </div>
+                        <span className="distribution-count">{bucket.count}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="manager-panel">
+              <p className="meta-title">Sub-Score Breakdown by Framework × Pattern</p>
+              {(!scoreDistribution.subscoreBreakdown || scoreDistribution.subscoreBreakdown.length === 0) ? (
+                <p className="supporting-note">No sub-score breakdown available.</p>
+              ) : (
+                <div className="table-scroll table-scroll-y">
+                  <table className="analytics-table">
+                    <thead>
+                      <tr>
+                        <th>Framework</th>
+                        <th>Pattern</th>
+                        <th>Retrieval</th>
+                        <th>Grounded</th>
+                        <th>Safety</th>
+                        <th>Latency</th>
+                        <th>Effective</th>
+                        <th>LLM Scored</th>
+                        <th>Heuristic</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {scoreDistribution.subscoreBreakdown.map((row, index) => (
+                        <tr key={`${row.framework}-${row.ragPattern}-${index}`}>
+                          <td>{row.framework}</td>
+                          <td>{row.ragPattern}</td>
+                          <td>{Number(row.avgRetrievalQuality).toFixed(3)}</td>
+                          <td>{Number(row.avgGroundedCorrectness).toFixed(3)}</td>
+                          <td>{Number(row.avgSafety).toFixed(3)}</td>
+                          <td>{Number(row.avgLatencyEfficiency).toFixed(3)}</td>
+                          <td><strong>{Number(row.avgEffectiveRagScore).toFixed(3)}</strong></td>
+                          <td>
+                            <span className={`scoring-badge ${row.llmScoredCount > 0 ? "llm-scored" : "heuristic-scored"}`}>
+                              {row.llmScoredCount}
+                            </span>
+                          </td>
+                          <td>{row.heuristicCount}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+          )}
         </section>
         )}
 

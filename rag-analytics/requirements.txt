@@ -4,3 +4,6 @@ pydantic==2.9.2
 SQLAlchemy==2.0.36
 PyMySQL==1.1.1
 cryptography==43.0.1
+openai>=1.30.0,<2.0.0
+celery[redis]==5.4.0
+redis==5.0.8

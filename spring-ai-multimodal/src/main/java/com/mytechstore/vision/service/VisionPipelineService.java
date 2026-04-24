@@ -50,6 +50,7 @@ public class VisionPipelineService {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final WebClient webClient;
     private final int defaultTopK;
+    private final AnalyticsReporter analyticsReporter;
 
     public VisionPipelineService(VectorStore vectorStore,
                                  ChatClient chatClient,
@@ -58,7 +59,8 @@ public class VisionPipelineService {
                                  @Value("${chroma.url:http://chroma-faq:8000}") String chromaUrl,
                                  @Value("${chroma.collection-prefix:faq_}") String collectionPrefix,
                                  @Value("${retrieval.top-k:6}") int defaultTopK,
-                                 WebClient webClient) {
+                             WebClient webClient,
+                             AnalyticsReporter analyticsReporter) {
         this.vectorStore = vectorStore;
         this.chatClient = chatClient;
         this.sourceFile = sourceFile;
@@ -67,6 +69,7 @@ public class VisionPipelineService {
         this.collectionPrefix = collectionPrefix;
         this.defaultTopK = defaultTopK;
         this.webClient = webClient;
+        this.analyticsReporter = analyticsReporter;
     }
 
     @CacheEvict(value = "multimodalAnswers", allEntries = true)
@@ -103,8 +106,11 @@ public class VisionPipelineService {
                 + "Question: " + question;
 
         String answer = chatClient.prompt().user(prompt).call().content();
-        return new VisionRagResponse(answer, chunksUsed, "chroma-direct+multimodal-context",
+        VisionRagResponse response = new VisionRagResponse(answer, chunksUsed, "chroma-direct+multimodal-context",
                 "springai-multimodal-rag", null, null, List.of());
+        analyticsReporter.postEvent(question, answer, customerId != null ? customerId : "default",
+                "multimodal", "chroma-direct+multimodal-context", 0, context);
+        return response;
     }
 
     private List<String> queryChroma(String customerId, String question, int topK) {

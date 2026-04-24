@@ -27,6 +27,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
@@ -67,6 +68,7 @@ public class RetrievalPipelineService {
     private final double defaultThreshold;
     private final double weightVector;
     private final double weightLexical;
+    private final AnalyticsReporter analyticsReporter;
 
     public RetrievalPipelineService(
         ChatClient.Builder chatClientBuilder,
@@ -79,7 +81,8 @@ public class RetrievalPipelineService {
         @Value("${retrieval.top-k}") int defaultTopK,
         @Value("${retrieval.similarity-threshold}") double defaultThreshold,
         @Value("${retrieval.rerank-weight-vector}") double weightVector,
-        @Value("${retrieval.rerank-weight-lexical}") double weightLexical
+        @Value("${retrieval.rerank-weight-lexical}") double weightLexical,
+        AnalyticsReporter analyticsReporter
     ) {
         this.chatClient = chatClientBuilder.build();
         this.embeddingModel = embeddingModel;
@@ -93,6 +96,7 @@ public class RetrievalPipelineService {
         this.defaultThreshold = defaultThreshold;
         this.weightVector = weightVector;
         this.weightLexical = weightLexical;
+        this.analyticsReporter = analyticsReporter;
     }
 
     public Map<String, Object> health() {
@@ -189,6 +193,10 @@ public class RetrievalPipelineService {
             redisTemplate.opsForValue().set(cachedKey, response, java.time.Duration.ofHours(24));
             logger.debug("Cached idempotent response for key: {}", idempotencyKey);
         }
+
+        analyticsReporter.postEvent(question, answer, tenantId,
+                "retrieval", "query-transform+hybrid-retrieval+rerank+grounded-generation",
+                totalMs, reranked.stream().map(c -> c.content).collect(Collectors.joining("\n\n")));
 
         return response;
     }

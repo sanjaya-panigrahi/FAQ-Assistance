@@ -1,10 +1,12 @@
 import json
+import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
+from .analytics_client import post_analytics_event
 from .config import settings
 from .schemas import RagResponse
 
@@ -24,6 +26,7 @@ class AgenticPipeline:
         return 0
 
     def ask(self, question: str, customer_id: str | None = None) -> RagResponse:
+        _t0 = time.perf_counter()
         tenant = (customer_id or "default").strip()
         collection = f"{settings.chroma_collection_prefix}{tenant}"
 
@@ -74,12 +77,20 @@ class AgenticPipeline:
             ]
         ).content
 
-        return RagResponse(
+        response = RagResponse(
             answer=str(answer),
             chunksUsed=len(docs),
             strategy="chroma-v2-rest+langgraph-routing",
             orchestrationStrategy="langgraph-multistep-routing",
         )
+        post_analytics_event(
+            question=question, response_text=response.answer,
+            customer_id=customer_id or "default", rag_pattern="agentic",
+            framework="langgraph", strategy=response.strategy,
+            latency_ms=int((time.perf_counter() - _t0) * 1000),
+            context_docs=context,
+        )
+        return response
 
     def _chroma_base(self) -> str:
         return (
