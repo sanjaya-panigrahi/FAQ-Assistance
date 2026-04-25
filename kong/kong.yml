@@ -140,7 +140,7 @@ services:
         strip_path: true
 
   - name: langchain-agentic
-    url: http://langchain-agentic:8000
+    url: http://langchain-unified:8000/agentic
     connect_timeout: 120000
     write_timeout: 120000
     read_timeout: 180000
@@ -152,7 +152,7 @@ services:
         strip_path: true
 
   - name: langchain-retrieval
-    url: http://langchain-retrieval-service:8000
+    url: http://langchain-unified:8000/retrieval
     connect_timeout: 120000
     write_timeout: 120000
     read_timeout: 180000
@@ -164,7 +164,7 @@ services:
         strip_path: true
 
   - name: langchain-neo4j-graph
-    url: http://langchain-neo4j-graph:8000
+    url: http://langchain-unified:8000/graph
     connect_timeout: 120000
     write_timeout: 120000
     read_timeout: 180000
@@ -176,7 +176,7 @@ services:
         strip_path: true
 
   - name: langchain-corrective
-    url: http://langchain-corrective:8000
+    url: http://langchain-unified:8000/corrective
     connect_timeout: 120000
     write_timeout: 120000
     read_timeout: 180000
@@ -188,7 +188,7 @@ services:
         strip_path: true
 
   - name: langchain-multimodal
-    url: http://langchain-multimodal:8000
+    url: http://langchain-unified:8000/multimodal
     connect_timeout: 120000
     write_timeout: 120000
     read_timeout: 180000
@@ -200,7 +200,7 @@ services:
         strip_path: true
 
   - name: langchain-hierarchical
-    url: http://langchain-hierarchical:8000
+    url: http://langchain-unified:8000/hierarchical
     connect_timeout: 120000
     write_timeout: 120000
     read_timeout: 180000
@@ -212,7 +212,7 @@ services:
         strip_path: true
 
   - name: langgraph-agentic
-    url: http://langgraph-agentic:8000
+    url: http://langgraph-unified:8000/agentic
     connect_timeout: 120000
     write_timeout: 120000
     read_timeout: 180000
@@ -224,7 +224,7 @@ services:
         strip_path: true
 
   - name: langgraph-retrieval
-    url: http://langgraph-retrieval-service:8000
+    url: http://langgraph-unified:8000/retrieval
     connect_timeout: 120000
     write_timeout: 120000
     read_timeout: 180000
@@ -236,7 +236,7 @@ services:
         strip_path: true
 
   - name: langgraph-neo4j-graph
-    url: http://langgraph-neo4j-graph:8000
+    url: http://langgraph-unified:8000/graph
     connect_timeout: 120000
     write_timeout: 120000
     read_timeout: 180000
@@ -248,7 +248,7 @@ services:
         strip_path: true
 
   - name: langgraph-corrective
-    url: http://langgraph-corrective:8000
+    url: http://langgraph-unified:8000/corrective
     connect_timeout: 120000
     write_timeout: 120000
     read_timeout: 180000
@@ -260,7 +260,7 @@ services:
         strip_path: true
 
   - name: langgraph-multimodal
-    url: http://langgraph-multimodal:8000
+    url: http://langgraph-unified:8000/multimodal
     connect_timeout: 120000
     write_timeout: 120000
     read_timeout: 180000
@@ -272,7 +272,7 @@ services:
         strip_path: true
 
   - name: langgraph-hierarchical
-    url: http://langgraph-hierarchical:8000
+    url: http://langgraph-unified:8000/hierarchical
     connect_timeout: 120000
     write_timeout: 120000
     read_timeout: 180000
