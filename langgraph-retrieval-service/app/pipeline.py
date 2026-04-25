@@ -37,6 +37,7 @@ class RetrievalPipeline:
         )
         self._embeddings = OpenAIEmbeddings(model=settings.openai_embedding_model)
         self._llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
+        self._warmup()
 
         graph = StateGraph(RetrievalState)
         graph.add_node("transform", self._node_transform_query)
@@ -51,6 +52,13 @@ class RetrievalPipeline:
         graph.add_edge("generate", END)
 
         self._graph = graph.compile()
+
+    def _warmup(self) -> None:
+        """Pre-establish OpenAI API connections to avoid cold-start latency."""
+        try:
+            self._embeddings.embed_query("warmup")
+        except Exception:
+            pass
 
     def health(self) -> dict:
         try:

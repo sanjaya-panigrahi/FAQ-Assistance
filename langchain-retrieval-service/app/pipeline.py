@@ -27,6 +27,14 @@ class RetrievalPipeline:
         self._embeddings = OpenAIEmbeddings(model=settings.openai_embedding_model)
         self._llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
         self._embedding_cache: dict[str, list[float]] = {}
+        self._warmup()
+
+    def _warmup(self) -> None:
+        """Pre-establish OpenAI API connections to avoid cold-start latency."""
+        try:
+            self._embeddings.embed_query("warmup")
+        except Exception:
+            pass
 
     def health(self) -> dict:
         try:

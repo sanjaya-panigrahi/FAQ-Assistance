@@ -18,6 +18,13 @@ class AgenticPipeline:
     def __init__(self) -> None:
         self._embeddings = OpenAIEmbeddings(model=settings.openai_embedding_model)
         self._llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
+        self._warmup()
+
+    def _warmup(self) -> None:
+        try:
+            self._embeddings.embed_query("warmup")
+        except Exception:
+            pass
 
     def health(self) -> dict:
         try:

@@ -24,6 +24,13 @@ class GraphPipeline:
         self._llm = None
         self._chroma_client = chromadb.HttpClient(host=settings.chroma_host, port=settings.chroma_port)
         self._embeddings = OpenAIEmbeddings(model=settings.openai_embedding_model)
+        self._warmup()
+
+    def _warmup(self) -> None:
+        try:
+            self._embeddings.embed_query("warmup")
+        except Exception:
+            pass
 
     def _get_graph_client(self) -> Neo4jGraph | None:
         if self._graph_client is None:
