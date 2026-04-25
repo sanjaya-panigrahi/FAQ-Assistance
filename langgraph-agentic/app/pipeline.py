@@ -4,9 +4,10 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_openai import ChatOpenAI
 
 from .analytics_client import post_analytics_event
+from .cached_embeddings import CachedOpenAIEmbeddings
 from .config import settings
 from .schemas import RagResponse
 
@@ -16,7 +17,7 @@ class AgenticPipeline:
     CHROMA_DATABASE = "default_database"
 
     def __init__(self) -> None:
-        self._embeddings = OpenAIEmbeddings(model=settings.openai_embedding_model)
+        self._embeddings = CachedOpenAIEmbeddings(model=settings.openai_embedding_model)
         self._llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
         self._warmup()
 

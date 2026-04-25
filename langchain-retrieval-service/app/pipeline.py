@@ -7,9 +7,10 @@ import chromadb
 import redis
 
 from langchain_chroma import Chroma
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_openai import ChatOpenAI
 
 from .analytics_client import post_analytics_event
+from .cached_embeddings import CachedOpenAIEmbeddings
 from .config import settings
 from .schemas import RetrievedChunk, RetrievalQueryRequest, RetrievalQueryResponse
 
@@ -24,9 +25,8 @@ class RetrievalPipeline:
         self._chroma_client = chromadb.HttpClient(
             host=settings.chroma_host, port=settings.chroma_port,
         )
-        self._embeddings = OpenAIEmbeddings(model=settings.openai_embedding_model)
+        self._embeddings = CachedOpenAIEmbeddings(model=settings.openai_embedding_model)
         self._llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
-        self._embedding_cache: dict[str, list[float]] = {}
         self._warmup()
 
     def _warmup(self) -> None:

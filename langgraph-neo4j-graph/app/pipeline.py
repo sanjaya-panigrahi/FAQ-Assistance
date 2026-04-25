@@ -3,10 +3,11 @@ import time
 import chromadb
 
 from langchain_chroma import Chroma
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_openai import ChatOpenAI
 from langchain_community.graphs import Neo4jGraph
 
 from .analytics_client import post_analytics_event
+from .cached_embeddings import CachedOpenAIEmbeddings
 from .config import settings
 from .faq_parser import parse_faq_entries
 from .schemas import RagResponse
@@ -23,7 +24,7 @@ class GraphPipeline:
         self._graph_client = None
         self._llm = None
         self._chroma_client = chromadb.HttpClient(host=settings.chroma_host, port=settings.chroma_port)
-        self._embeddings = OpenAIEmbeddings(model=settings.openai_embedding_model)
+        self._embeddings = CachedOpenAIEmbeddings(model=settings.openai_embedding_model)
         self._warmup()
 
     def _warmup(self) -> None:
