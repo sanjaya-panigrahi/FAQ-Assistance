@@ -1,10 +1,10 @@
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:
-  name: spring-ai-neo4j-graph-dr
+  name: spring-ai-unified-dr
   namespace: faq-assistance
 spec:
-  host: spring-ai-neo4j-graph
+  host: spring-ai-unified
   trafficPolicy:
     connectionPool:
       tcp:
@@ -20,15 +20,15 @@ spec:
   subsets:
     - name: v1
       labels:
-        app: spring-ai-neo4j-graph
+        app: spring-ai-unified
 ---
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:
-  name: langchain-neo4j-graph-dr
+  name: langchain-unified-dr
   namespace: faq-assistance
 spec:
-  host: langchain-neo4j-graph
+  host: langchain-unified
   trafficPolicy:
     connectionPool:
       tcp:
@@ -44,15 +44,15 @@ spec:
   subsets:
     - name: v1
       labels:
-        app: langchain-neo4j-graph
+        app: langchain-unified
 ---
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:
-  name: langgraph-neo4j-graph-dr
+  name: langgraph-unified-dr
   namespace: faq-assistance
 spec:
-  host: langgraph-neo4j-graph
+  host: langgraph-unified
   trafficPolicy:
     connectionPool:
       tcp:
@@ -68,4 +68,4 @@ spec:
   subsets:
     - name: v1
       labels:
-        app: langgraph-neo4j-graph
+        app: langgraph-unified

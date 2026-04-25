@@ -184,7 +184,7 @@ spec:
           valueFrom:
             secretKeyRef:
               name: neo4j-secrets
-              key: password
+              key: neo4j-auth
         - name: NEO4J_server_memory_heap_initial__size
           value: "1g"
         - name: NEO4J_server_memory_heap_max__size

@@ -22,35 +22,14 @@ plugins:
       credentials: true
       max_age: 3600
 
-upstreams:
-  - name: spring-neo4j-graph-upstream
-    algorithm: round-robin
-    healthchecks:
-      active:
-        type: http
-        http_path: /actuator/health
-        healthy:
-          interval: 10
-          successes: 2
-        unhealthy:
-          interval: 5
-          http_failures: 3
-          tcp_failures: 3
-          timeouts: 3
-      passive:
-        healthy:
-          successes: 2
-        unhealthy:
-          http_failures: 5
-          tcp_failures: 3
-          timeouts: 3
-    targets:
-      - target: spring-ai-neo4j-graph:9000
-        weight: 100
 
 services:
   - name: spring-agentic
-    url: http://spring-ai-agentic:9000
+    url: http://spring-ai-unified:9000/agentic
+    connect_timeout: 120000
+    write_timeout: 120000
+    read_timeout: 180000
+    retries: 1
     routes:
       - name: spring-agentic-route
         paths:
@@ -58,13 +37,11 @@ services:
         strip_path: true
 
   - name: spring-neo4j-graph
-    host: spring-neo4j-graph-upstream
-    protocol: http
-    port: 80
-    retries: 5
+    url: http://spring-ai-unified:9000/graph
     connect_timeout: 120000
     write_timeout: 120000
     read_timeout: 180000
+    retries: 1
     routes:
       - name: spring-neo4j-graph-route
         paths:
@@ -72,7 +49,7 @@ services:
         strip_path: true
 
   - name: spring-corrective
-    url: http://spring-ai-corrective:9000
+    url: http://spring-ai-unified:9000/corrective
     connect_timeout: 120000
     write_timeout: 120000
     read_timeout: 180000
@@ -84,7 +61,7 @@ services:
         strip_path: true
 
   - name: spring-multimodal
-    url: http://spring-ai-multimodal:9000
+    url: http://spring-ai-unified:9000/multimodal
     connect_timeout: 120000
     write_timeout: 120000
     read_timeout: 180000
@@ -96,7 +73,7 @@ services:
         strip_path: true
 
   - name: spring-hierarchical
-    url: http://spring-ai-hierarchical:9000
+    url: http://spring-ai-unified:9000/hierarchical
     connect_timeout: 120000
     write_timeout: 120000
     read_timeout: 180000
@@ -139,14 +116,14 @@ services:
           - /spring/analytics
         strip_path: true
 
-  - name: langchain-agentic
+  - name: langchain-unified-agentic
     url: http://langchain-unified:8000/agentic
     connect_timeout: 120000
     write_timeout: 120000
     read_timeout: 180000
     retries: 1
     routes:
-      - name: langchain-agentic-route
+      - name: langchain-unified-agentic-route
         paths:
           - /langchain/agentic
         strip_path: true
@@ -163,62 +140,62 @@ services:
           - /langchain/retrieval
         strip_path: true
 
-  - name: langchain-neo4j-graph
+  - name: langchain-unified-graph
     url: http://langchain-unified:8000/graph
     connect_timeout: 120000
     write_timeout: 120000
     read_timeout: 180000
     retries: 1
     routes:
-      - name: langchain-neo4j-graph-route
+      - name: langchain-unified-graph-route
         paths:
           - /langchain/graph
         strip_path: true
 
-  - name: langchain-corrective
+  - name: langchain-unified-corrective
     url: http://langchain-unified:8000/corrective
     connect_timeout: 120000
     write_timeout: 120000
     read_timeout: 180000
     retries: 1
     routes:
-      - name: langchain-corrective-route
+      - name: langchain-unified-corrective-route
         paths:
           - /langchain/corrective
         strip_path: true
 
-  - name: langchain-multimodal
+  - name: langchain-unified-multimodal
     url: http://langchain-unified:8000/multimodal
     connect_timeout: 120000
     write_timeout: 120000
     read_timeout: 180000
     retries: 1
     routes:
-      - name: langchain-multimodal-route
+      - name: langchain-unified-multimodal-route
         paths:
           - /langchain/multimodal
         strip_path: true
 
-  - name: langchain-hierarchical
+  - name: langchain-unified-hierarchical
     url: http://langchain-unified:8000/hierarchical
     connect_timeout: 120000
     write_timeout: 120000
     read_timeout: 180000
     retries: 1
     routes:
-      - name: langchain-hierarchical-route
+      - name: langchain-unified-hierarchical-route
         paths:
           - /langchain/hierarchical
         strip_path: true
 
-  - name: langgraph-agentic
+  - name: langgraph-unified-agentic
     url: http://langgraph-unified:8000/agentic
     connect_timeout: 120000
     write_timeout: 120000
     read_timeout: 180000
     retries: 1
     routes:
-      - name: langgraph-agentic-route
+      - name: langgraph-unified-agentic-route
         paths:
           - /langgraph/agentic
         strip_path: true
@@ -235,50 +212,50 @@ services:
           - /langgraph/retrieval
         strip_path: true
 
-  - name: langgraph-neo4j-graph
+  - name: langgraph-unified-graph
     url: http://langgraph-unified:8000/graph
     connect_timeout: 120000
     write_timeout: 120000
     read_timeout: 180000
     retries: 1
     routes:
-      - name: langgraph-neo4j-graph-route
+      - name: langgraph-unified-graph-route
         paths:
           - /langgraph/graph
         strip_path: true
 
-  - name: langgraph-corrective
+  - name: langgraph-unified-corrective
     url: http://langgraph-unified:8000/corrective
     connect_timeout: 120000
     write_timeout: 120000
     read_timeout: 180000
     retries: 1
     routes:
-      - name: langgraph-corrective-route
+      - name: langgraph-unified-corrective-route
         paths:
           - /langgraph/corrective
         strip_path: true
 
-  - name: langgraph-multimodal
+  - name: langgraph-unified-multimodal
     url: http://langgraph-unified:8000/multimodal
     connect_timeout: 120000
     write_timeout: 120000
     read_timeout: 180000
     retries: 1
     routes:
-      - name: langgraph-multimodal-route
+      - name: langgraph-unified-multimodal-route
         paths:
           - /langgraph/multimodal
         strip_path: true
 
-  - name: langgraph-hierarchical
+  - name: langgraph-unified-hierarchical
     url: http://langgraph-unified:8000/hierarchical
     connect_timeout: 120000
     write_timeout: 120000
     read_timeout: 180000
     retries: 1
     routes:
-      - name: langgraph-hierarchical-route
+      - name: langgraph-unified-hierarchical-route
         paths:
           - /langgraph/hierarchical
         strip_path: true

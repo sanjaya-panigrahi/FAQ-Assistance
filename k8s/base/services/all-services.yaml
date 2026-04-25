@@ -116,14 +116,14 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: spring-ai-agentic
+  name: spring-ai-unified
   namespace: faq-assistance
 spec:
   selector:
-    app: spring-ai-agentic
+    app: spring-ai-unified
   ports:
-    - port: 8081
-      targetPort: 8081
+    - port: 9000
+      targetPort: 9000
   type: ClusterIP
 ---
 apiVersion: v1
@@ -142,209 +142,27 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: spring-ai-neo4j-graph
+  name: langchain-unified
   namespace: faq-assistance
 spec:
   selector:
-    app: spring-ai-neo4j-graph
+    app: langchain-unified
   ports:
-    - port: 8082
-      targetPort: 8082
+    - port: 8000
+      targetPort: 8000
   type: ClusterIP
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: spring-ai-corrective
+  name: langgraph-unified
   namespace: faq-assistance
 spec:
   selector:
-    app: spring-ai-corrective
+    app: langgraph-unified
   ports:
-    - port: 8083
-      targetPort: 8083
-  type: ClusterIP
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: spring-ai-multimodal
-  namespace: faq-assistance
-spec:
-  selector:
-    app: spring-ai-multimodal
-  ports:
-    - port: 8084
-      targetPort: 8084
-  type: ClusterIP
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: spring-ai-hierarchical
-  namespace: faq-assistance
-spec:
-  selector:
-    app: spring-ai-hierarchical
-  ports:
-    - port: 8085
-      targetPort: 8085
-  type: ClusterIP
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: langchain-agentic
-  namespace: faq-assistance
-spec:
-  selector:
-    app: langchain-agentic
-  ports:
-    - port: 8181
-      targetPort: 8181
-  type: ClusterIP
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: langchain-retrieval-service
-  namespace: faq-assistance
-spec:
-  selector:
-    app: langchain-retrieval-service
-  ports:
-    - port: 8186
-      targetPort: 8186
-  type: ClusterIP
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: langchain-neo4j-graph
-  namespace: faq-assistance
-spec:
-  selector:
-    app: langchain-neo4j-graph
-  ports:
-    - port: 8182
-      targetPort: 8182
-  type: ClusterIP
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: langchain-corrective
-  namespace: faq-assistance
-spec:
-  selector:
-    app: langchain-corrective
-  ports:
-    - port: 8183
-      targetPort: 8183
-  type: ClusterIP
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: langchain-multimodal
-  namespace: faq-assistance
-spec:
-  selector:
-    app: langchain-multimodal
-  ports:
-    - port: 8184
-      targetPort: 8184
-  type: ClusterIP
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: langchain-hierarchical
-  namespace: faq-assistance
-spec:
-  selector:
-    app: langchain-hierarchical
-  ports:
-    - port: 8185
-      targetPort: 8185
-  type: ClusterIP
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: langgraph-agentic
-  namespace: faq-assistance
-spec:
-  selector:
-    app: langgraph-agentic
-  ports:
-    - port: 8281
-      targetPort: 8281
-  type: ClusterIP
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: langgraph-retrieval-service
-  namespace: faq-assistance
-spec:
-  selector:
-    app: langgraph-retrieval-service
-  ports:
-    - port: 8286
-      targetPort: 8286
-  type: ClusterIP
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: langgraph-neo4j-graph
-  namespace: faq-assistance
-spec:
-  selector:
-    app: langgraph-neo4j-graph
-  ports:
-    - port: 8282
-      targetPort: 8282
-  type: ClusterIP
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: langgraph-corrective
-  namespace: faq-assistance
-spec:
-  selector:
-    app: langgraph-corrective
-  ports:
-    - port: 8283
-      targetPort: 8283
-  type: ClusterIP
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: langgraph-multimodal
-  namespace: faq-assistance
-spec:
-  selector:
-    app: langgraph-multimodal
-  ports:
-    - port: 8284
-      targetPort: 8284
-  type: ClusterIP
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: langgraph-hierarchical
-  namespace: faq-assistance
-spec:
-  selector:
-    app: langgraph-hierarchical
-  ports:
-    - port: 8285
-      targetPort: 8285
+    - port: 8000
+      targetPort: 8000
   type: ClusterIP
 ---
 apiVersion: v1

@@ -1,93 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: langchain-agentic
-  namespace: faq-assistance
-spec:
-  replicas: 1
-  revisionHistoryLimit: 3
-  minReadySeconds: 10
-  selector:
-    matchLabels:
-      app: langchain-agentic
-  template:
-    metadata:
-      labels:
-        app: langchain-agentic
-        pattern: agentic
-        framework: langchain
-    spec:
-      automountServiceAccountToken: false
-      containers:
-      - name: langchain-agentic
-        image: faq-assistance:langchain-agentic-1.0.0
-        imagePullPolicy: IfNotPresent
-        env:
-        - name: APP_PORT
-          value: "8181"
-        - name: CHROMA_HOST
-          value: "chroma-faq"
-        - name: CHROMA_PORT
-          value: "8000"
-        - name: CHROMA_COLLECTION_PREFIX
-          valueFrom:
-            configMapKeyRef:
-              name: app-config
-              key: CHROMA_COLLECTION_PREFIX
-        - name: OPENAI_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: openai-secrets
-              key: openai-api-key
-        - name: JWT_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: auth-secrets
-              key: jwt-secret
-        - name: OPENAI_CHAT_MODEL
-          valueFrom:
-            configMapKeyRef:
-              name: app-config
-              key: OPENAI_CHAT_MODEL
-        - name: OPENAI_EMBEDDING_MODEL
-          valueFrom:
-            configMapKeyRef:
-              name: app-config
-              key: OPENAI_EMBEDDING_MODEL
-        ports:
-        - containerPort: 8181
-        securityContext:
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop: ["ALL"]
-          seccompProfile:
-            type: RuntimeDefault
-        resources:
-          requests:
-            memory: "512Mi"
-            cpu: "500m"
-          limits:
-            memory: "1Gi"
-            cpu: "1000m"
-        livenessProbe:
-          httpGet:
-            path: /actuator/health
-            port: 8181
-          initialDelaySeconds: 30
-          periodSeconds: 10
-          failureThreshold: 5
-        readinessProbe:
-          httpGet:
-            path: /actuator/health
-            port: 8181
-          initialDelaySeconds: 15
-          periodSeconds: 5
-          failureThreshold: 5
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: langchain-retrieval-service
+  name: langchain-unified
   namespace: faq-assistance
 spec:
   replicas: 2
@@ -95,129 +9,35 @@ spec:
   minReadySeconds: 10
   selector:
     matchLabels:
-      app: langchain-retrieval-service
+      app: langchain-unified
   template:
     metadata:
       labels:
-        app: langchain-retrieval-service
-        pattern: retrieval
+        app: langchain-unified
         framework: langchain
     spec:
       automountServiceAccountToken: false
       containers:
-      - name: langchain-retrieval
-        image: faq-assistance:langchain-retrieval-service-1.0.0
+      - name: langchain-unified
+        image: faq-assistance:langchain-unified-1.0.0
         imagePullPolicy: IfNotPresent
         env:
-        - name: APP_PORT
-          value: "8186"
-        - name: CHROMA_HOST
-          value: "chroma-faq"
-        - name: CHROMA_PORT
-          value: "8000"
-        - name: CHROMA_COLLECTION_PREFIX
-          valueFrom:
-            configMapKeyRef:
-              name: app-config
-              key: CHROMA_COLLECTION_PREFIX
-        - name: OPENAI_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: openai-secrets
-              key: openai-api-key
-        - name: JWT_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: auth-secrets
-              key: jwt-secret
-        - name: OPENAI_CHAT_MODEL
-          valueFrom:
-            configMapKeyRef:
-              name: app-config
-              key: OPENAI_CHAT_MODEL
-        - name: OPENAI_EMBEDDING_MODEL
-          valueFrom:
-            configMapKeyRef:
-              name: app-config
-              key: OPENAI_EMBEDDING_MODEL
-        ports:
-        - containerPort: 8186
-        securityContext:
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop: ["ALL"]
-          seccompProfile:
-            type: RuntimeDefault
-        resources:
-          requests:
-            memory: "512Mi"
-            cpu: "500m"
-          limits:
-            memory: "1Gi"
-            cpu: "1000m"
-        livenessProbe:
-          httpGet:
-            path: /actuator/health
-            port: 8186
-          initialDelaySeconds: 30
-          periodSeconds: 10
-          failureThreshold: 5
-        readinessProbe:
-          httpGet:
-            path: /actuator/health
-            port: 8186
-          initialDelaySeconds: 15
-          periodSeconds: 5
-          failureThreshold: 5
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: langchain-neo4j-graph
-  namespace: faq-assistance
-spec:
-  replicas: 1
-  revisionHistoryLimit: 3
-  minReadySeconds: 10
-  selector:
-    matchLabels:
-      app: langchain-neo4j-graph
-  template:
-    metadata:
-      labels:
-        app: langchain-neo4j-graph
-        pattern: graph
-        framework: langchain
-    spec:
-      automountServiceAccountToken: false
-      containers:
-      - name: langchain-neo4j-graph
-        image: faq-assistance:langchain-neo4j-graph-1.0.0
-        imagePullPolicy: IfNotPresent
-        env:
-        - name: APP_PORT
-          value: "8182"
-        - name: CHROMA_HOST
-          value: "chroma-faq"
-        - name: CHROMA_PORT
-          value: "8000"
+        - name: CHROMA_URL
+          value: "http://chroma-faq:8000"
         - name: NEO4J_URI
           value: "bolt://neo4j-unified:7687"
-        - name: CHROMA_COLLECTION_PREFIX
+        - name: NEO4J_USERNAME
+          value: "neo4j"
+        - name: NEO4J_PASSWORD
           valueFrom:
-            configMapKeyRef:
-              name: app-config
-              key: CHROMA_COLLECTION_PREFIX
+            secretKeyRef:
+              name: neo4j-secrets
+              key: neo4j-password
         - name: OPENAI_API_KEY
           valueFrom:
             secretKeyRef:
               name: openai-secrets
               key: openai-api-key
-        - name: JWT_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: auth-secrets
-              key: jwt-secret
         - name: OPENAI_CHAT_MODEL
           valueFrom:
             configMapKeyRef:
@@ -228,8 +48,15 @@ spec:
             configMapKeyRef:
               name: app-config
               key: OPENAI_EMBEDDING_MODEL
+        - name: FAQ_SOURCE_FILE
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: FAQ_SOURCE_FILE
+        - name: REDIS_URL
+          value: "redis://redis-cache:6379/0"
         ports:
-        - containerPort: 8182
+        - containerPort: 8000
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
@@ -242,282 +69,18 @@ spec:
             cpu: "500m"
           limits:
             memory: "1Gi"
-            cpu: "1000m"
+            cpu: "1500m"
         livenessProbe:
           httpGet:
             path: /actuator/health
-            port: 8182
-          initialDelaySeconds: 30
-          periodSeconds: 10
+            port: 8000
+          initialDelaySeconds: 60
+          periodSeconds: 15
           failureThreshold: 5
         readinessProbe:
           httpGet:
             path: /actuator/health
-            port: 8182
-          initialDelaySeconds: 15
-          periodSeconds: 5
-          failureThreshold: 5
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: langchain-corrective
-  namespace: faq-assistance
-spec:
-  replicas: 1
-  revisionHistoryLimit: 3
-  minReadySeconds: 10
-  selector:
-    matchLabels:
-      app: langchain-corrective
-  template:
-    metadata:
-      labels:
-        app: langchain-corrective
-        pattern: corrective
-        framework: langchain
-    spec:
-      automountServiceAccountToken: false
-      containers:
-      - name: langchain-corrective
-        image: faq-assistance:langchain-corrective-1.0.0
-        imagePullPolicy: IfNotPresent
-        env:
-        - name: APP_PORT
-          value: "8183"
-        - name: CHROMA_HOST
-          value: "chroma-faq"
-        - name: CHROMA_PORT
-          value: "8000"
-        - name: NEO4J_URI
-          value: "bolt://neo4j-unified:7687"
-        - name: CHROMA_COLLECTION_PREFIX
-          valueFrom:
-            configMapKeyRef:
-              name: app-config
-              key: CHROMA_COLLECTION_PREFIX
-        - name: OPENAI_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: openai-secrets
-              key: openai-api-key
-        - name: JWT_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: auth-secrets
-              key: jwt-secret
-        - name: OPENAI_CHAT_MODEL
-          valueFrom:
-            configMapKeyRef:
-              name: app-config
-              key: OPENAI_CHAT_MODEL
-        - name: OPENAI_EMBEDDING_MODEL
-          valueFrom:
-            configMapKeyRef:
-              name: app-config
-              key: OPENAI_EMBEDDING_MODEL
-        ports:
-        - containerPort: 8183
-        securityContext:
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop: ["ALL"]
-          seccompProfile:
-            type: RuntimeDefault
-        resources:
-          requests:
-            memory: "512Mi"
-            cpu: "500m"
-          limits:
-            memory: "1Gi"
-            cpu: "1000m"
-        livenessProbe:
-          httpGet:
-            path: /actuator/health
-            port: 8183
+            port: 8000
           initialDelaySeconds: 30
           periodSeconds: 10
-          failureThreshold: 5
-        readinessProbe:
-          httpGet:
-            path: /actuator/health
-            port: 8183
-          initialDelaySeconds: 15
-          periodSeconds: 5
-          failureThreshold: 5
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: langchain-multimodal
-  namespace: faq-assistance
-spec:
-  replicas: 1
-  revisionHistoryLimit: 3
-  minReadySeconds: 10
-  selector:
-    matchLabels:
-      app: langchain-multimodal
-  template:
-    metadata:
-      labels:
-        app: langchain-multimodal
-        pattern: multimodal
-        framework: langchain
-    spec:
-      automountServiceAccountToken: false
-      containers:
-      - name: langchain-multimodal
-        image: faq-assistance:langchain-multimodal-1.0.0
-        imagePullPolicy: IfNotPresent
-        env:
-        - name: APP_PORT
-          value: "8184"
-        - name: CHROMA_HOST
-          value: "chroma-faq"
-        - name: CHROMA_PORT
-          value: "8000"
-        - name: NEO4J_URI
-          value: "bolt://neo4j-unified:7687"
-        - name: CHROMA_COLLECTION_PREFIX
-          valueFrom:
-            configMapKeyRef:
-              name: app-config
-              key: CHROMA_COLLECTION_PREFIX
-        - name: OPENAI_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: openai-secrets
-              key: openai-api-key
-        - name: JWT_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: auth-secrets
-              key: jwt-secret
-        - name: OPENAI_CHAT_MODEL
-          valueFrom:
-            configMapKeyRef:
-              name: app-config
-              key: OPENAI_CHAT_MODEL
-        - name: OPENAI_EMBEDDING_MODEL
-          valueFrom:
-            configMapKeyRef:
-              name: app-config
-              key: OPENAI_EMBEDDING_MODEL
-        ports:
-        - containerPort: 8184
-        securityContext:
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop: ["ALL"]
-          seccompProfile:
-            type: RuntimeDefault
-        resources:
-          requests:
-            memory: "512Mi"
-            cpu: "500m"
-          limits:
-            memory: "1Gi"
-            cpu: "1000m"
-        livenessProbe:
-          httpGet:
-            path: /actuator/health
-            port: 8184
-          initialDelaySeconds: 30
-          periodSeconds: 10
-          failureThreshold: 5
-        readinessProbe:
-          httpGet:
-            path: /actuator/health
-            port: 8184
-          initialDelaySeconds: 15
-          periodSeconds: 5
-          failureThreshold: 5
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: langchain-hierarchical
-  namespace: faq-assistance
-spec:
-  replicas: 1
-  revisionHistoryLimit: 3
-  minReadySeconds: 10
-  selector:
-    matchLabels:
-      app: langchain-hierarchical
-  template:
-    metadata:
-      labels:
-        app: langchain-hierarchical
-        pattern: hierarchical
-        framework: langchain
-    spec:
-      automountServiceAccountToken: false
-      containers:
-      - name: langchain-hierarchical
-        image: faq-assistance:langchain-hierarchical-1.0.0
-        imagePullPolicy: IfNotPresent
-        env:
-        - name: APP_PORT
-          value: "8185"
-        - name: CHROMA_HOST
-          value: "chroma-faq"
-        - name: CHROMA_PORT
-          value: "8000"
-        - name: NEO4J_URI
-          value: "bolt://neo4j-unified:7687"
-        - name: CHROMA_COLLECTION_PREFIX
-          valueFrom:
-            configMapKeyRef:
-              name: app-config
-              key: CHROMA_COLLECTION_PREFIX
-        - name: OPENAI_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: openai-secrets
-              key: openai-api-key
-        - name: JWT_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: auth-secrets
-              key: jwt-secret
-        - name: OPENAI_CHAT_MODEL
-          valueFrom:
-            configMapKeyRef:
-              name: app-config
-              key: OPENAI_CHAT_MODEL
-        - name: OPENAI_EMBEDDING_MODEL
-          valueFrom:
-            configMapKeyRef:
-              name: app-config
-              key: OPENAI_EMBEDDING_MODEL
-        ports:
-        - containerPort: 8185
-        securityContext:
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop: ["ALL"]
-          seccompProfile:
-            type: RuntimeDefault
-        resources:
-          requests:
-            memory: "512Mi"
-            cpu: "500m"
-          limits:
-            memory: "1Gi"
-            cpu: "1000m"
-        livenessProbe:
-          httpGet:
-            path: /actuator/health
-            port: 8185
-          initialDelaySeconds: 30
-          periodSeconds: 10
-          failureThreshold: 5
-        readinessProbe:
-          httpGet:
-            path: /actuator/health
-            port: 8185
-          initialDelaySeconds: 15
-          periodSeconds: 5
           failureThreshold: 5

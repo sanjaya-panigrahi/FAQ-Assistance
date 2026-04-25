@@ -3,7 +3,7 @@ _transform: true
 
 services:
   - name: spring-agentic
-    url: http://spring-ai-agentic.service.consul:9000
+    url: http://spring-ai-unified.service.consul:9000/agentic
     routes:
       - name: spring-agentic-route
         paths:
@@ -11,7 +11,7 @@ services:
         strip_path: true
 
   - name: spring-neo4j-graph
-    url: http://spring-ai-neo4j-graph.service.consul:9000
+    url: http://spring-ai-unified.service.consul:9000/graph
     routes:
       - name: spring-neo4j-graph-route
         paths:
@@ -19,7 +19,7 @@ services:
         strip_path: true
 
   - name: spring-corrective
-    url: http://spring-ai-corrective.service.consul:9000
+    url: http://spring-ai-unified.service.consul:9000/corrective
     routes:
       - name: spring-corrective-route
         paths:
@@ -27,7 +27,7 @@ services:
         strip_path: true
 
   - name: spring-multimodal
-    url: http://spring-ai-multimodal.service.consul:9000
+    url: http://spring-ai-unified.service.consul:9000/multimodal
     routes:
       - name: spring-multimodal-route
         paths:
@@ -35,7 +35,7 @@ services:
         strip_path: true
 
   - name: spring-hierarchical
-    url: http://spring-ai-hierarchical.service.consul:9000
+    url: http://spring-ai-unified.service.consul:9000/hierarchical
     routes:
       - name: spring-hierarchical-route
         paths:
@@ -62,82 +62,82 @@ services:
           - /spring/retrieval
         strip_path: true
 
-  - name: langchain-agentic
-    url: http://langchain-agentic.service.consul:8000
+  - name: langchain-unified-agentic
+    url: http://langchain-unified.service.consul:8000/agentic
     routes:
-      - name: langchain-agentic-route
+      - name: langchain-unified-agentic-route
         paths:
           - /langchain/agentic
         strip_path: true
 
-  - name: langchain-neo4j-graph
-    url: http://langchain-neo4j-graph.service.consul:8000
+  - name: langchain-unified-graph
+    url: http://langchain-unified.service.consul:8000/graph
     routes:
-      - name: langchain-neo4j-graph-route
+      - name: langchain-unified-graph-route
         paths:
           - /langchain/graph
         strip_path: true
 
-  - name: langchain-corrective
-    url: http://langchain-corrective.service.consul:8000
+  - name: langchain-unified-corrective
+    url: http://langchain-unified.service.consul:8000/corrective
     routes:
-      - name: langchain-corrective-route
+      - name: langchain-unified-corrective-route
         paths:
           - /langchain/corrective
         strip_path: true
 
-  - name: langchain-multimodal
-    url: http://langchain-multimodal.service.consul:8000
+  - name: langchain-unified-multimodal
+    url: http://langchain-unified.service.consul:8000/multimodal
     routes:
-      - name: langchain-multimodal-route
+      - name: langchain-unified-multimodal-route
         paths:
           - /langchain/multimodal
         strip_path: true
 
-  - name: langchain-hierarchical
-    url: http://langchain-hierarchical.service.consul:8000
+  - name: langchain-unified-hierarchical
+    url: http://langchain-unified.service.consul:8000/hierarchical
     routes:
-      - name: langchain-hierarchical-route
+      - name: langchain-unified-hierarchical-route
         paths:
           - /langchain/hierarchical
         strip_path: true
 
-  - name: langgraph-agentic
-    url: http://langgraph-agentic.service.consul:8281
+  - name: langgraph-unified-agentic
+    url: http://langgraph-unified.service.consul:8000/agentic
     routes:
-      - name: langgraph-agentic-route
+      - name: langgraph-unified-agentic-route
         paths:
           - /langgraph/agentic
         strip_path: true
 
-  - name: langgraph-neo4j-graph
-    url: http://langgraph-neo4j-graph.service.consul:8000
+  - name: langgraph-unified-graph
+    url: http://langgraph-unified.service.consul:8000/graph
     routes:
-      - name: langgraph-neo4j-graph-route
+      - name: langgraph-unified-graph-route
         paths:
           - /langgraph/graph
         strip_path: true
 
-  - name: langgraph-corrective
-    url: http://langgraph-corrective.service.consul:8000
+  - name: langgraph-unified-corrective
+    url: http://langgraph-unified.service.consul:8000/corrective
     routes:
-      - name: langgraph-corrective-route
+      - name: langgraph-unified-corrective-route
         paths:
           - /langgraph/corrective
         strip_path: true
 
-  - name: langgraph-multimodal
-    url: http://langgraph-multimodal.service.consul:8000
+  - name: langgraph-unified-multimodal
+    url: http://langgraph-unified.service.consul:8000/multimodal
     routes:
-      - name: langgraph-multimodal-route
+      - name: langgraph-unified-multimodal-route
         paths:
           - /langgraph/multimodal
         strip_path: true
 
-  - name: langgraph-hierarchical
-    url: http://langgraph-hierarchical.service.consul:8000
+  - name: langgraph-unified-hierarchical
+    url: http://langgraph-unified.service.consul:8000/hierarchical
     routes:
-      - name: langgraph-hierarchical-route
+      - name: langgraph-unified-hierarchical-route
         paths:
           - /langgraph/hierarchical
         strip_path: true

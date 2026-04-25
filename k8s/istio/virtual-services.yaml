@@ -14,10 +14,10 @@ spec:
         - uri:
             prefix: /spring/agentic
       rewrite:
-        uri: /
+        uri: /agentic
       route:
         - destination:
-            host: spring-ai-agentic
+            host: spring-ai-unified
             port:
               number: 9000
     - name: spring-graph
@@ -25,10 +25,10 @@ spec:
         - uri:
             prefix: /spring/graph
       rewrite:
-        uri: /
+        uri: /graph
       route:
         - destination:
-            host: spring-ai-neo4j-graph
+            host: spring-ai-unified
             port:
               number: 9000
     - name: spring-retrieval
@@ -47,10 +47,10 @@ spec:
         - uri:
             prefix: /langchain/graph
       rewrite:
-        uri: /
+        uri: /graph
       route:
         - destination:
-            host: langchain-neo4j-graph
+            host: langchain-unified
             port:
               number: 8000
     - name: langgraph-graph
@@ -58,9 +58,9 @@ spec:
         - uri:
             prefix: /langgraph/graph
       rewrite:
-        uri: /
+        uri: /graph
       route:
         - destination:
-            host: langgraph-neo4j-graph
+            host: langgraph-unified
             port:
               number: 8000

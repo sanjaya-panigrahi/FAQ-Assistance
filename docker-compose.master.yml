@@ -27,29 +27,11 @@ services:
 
   # Spring AI Stack
 
-  spring-ai-agentic:
+  spring-ai-unified:
     build:
-      context: ./spring-ai-agentic
+      context: ./spring-ai-unified
     ports:
-      - "8081:9000"
-    env_file: .env
-    environment:
-      NEO4J_URI: bolt://neo4j-unified:7687
-    depends_on:
-      neo4j-unified:
-        condition: service_healthy
-      zipkin:
-        condition: service_started
-    volumes:
-      - ./shared-data:/opt/data:ro
-    networks:
-      - faq-network
-
-  spring-ai-neo4j-graph:
-    build:
-      context: ./spring-ai-neo4j-graph
-    ports:
-      - "8082:9000"
+      - "9000:9000"
     env_file: .env
     environment:
       NEO4J_URI: bolt://neo4j-unified:7687
@@ -57,61 +39,7 @@ services:
       APP_EVENTS_ENABLED: ${APP_EVENTS_ENABLED:-false}
       APP_EVENTS_CONSUMER_ENABLED: ${APP_EVENTS_CONSUMER_ENABLED:-false}
       APP_EVENTS_TOPIC: ${APP_EVENTS_TOPIC:-graph.tasks.lifecycle.v1}
-      APP_EVENTS_CONSUMER_GROUP_ID: ${APP_EVENTS_CONSUMER_GROUP_ID:-spring-ai-neo4j-graph-consumer}
-    depends_on:
-      neo4j-unified:
-        condition: service_healthy
-      zipkin:
-        condition: service_started
-    volumes:
-      - ./shared-data:/opt/data:ro
-    networks:
-      - faq-network
-
-  spring-ai-corrective:
-    build:
-      context: ./spring-ai-corrective
-    ports:
-      - "8083:9000"
-    env_file: .env
-    environment:
-      NEO4J_URI: bolt://neo4j-unified:7687
-    depends_on:
-      neo4j-unified:
-        condition: service_healthy
-      zipkin:
-        condition: service_started
-    volumes:
-      - ./shared-data:/opt/data:ro
-    networks:
-      - faq-network
-
-  spring-ai-multimodal:
-    build:
-      context: ./spring-ai-multimodal
-    ports:
-      - "8084:9000"
-    env_file: .env
-    environment:
-      NEO4J_URI: bolt://neo4j-unified:7687
-    depends_on:
-      neo4j-unified:
-        condition: service_healthy
-      zipkin:
-        condition: service_started
-    volumes:
-      - ./shared-data:/opt/data:ro
-    networks:
-      - faq-network
-
-  spring-ai-hierarchical:
-    build:
-      context: ./spring-ai-hierarchical
-    ports:
-      - "8085:9000"
-    env_file: .env
-    environment:
-      NEO4J_URI: bolt://neo4j-unified:7687
+      APP_EVENTS_CONSUMER_GROUP_ID: ${APP_EVENTS_CONSUMER_GROUP_ID:-spring-ai-unified-consumer}
     depends_on:
       neo4j-unified:
         condition: service_healthy
@@ -282,7 +210,7 @@ services:
       dockerfile: Dockerfile
     container_name: ${FAQ_INGESTION_CONTAINER_NAME:-faq-ingestion}
     ports:
-      - "${FAQ_INGESTION_PORT:-9000}:9000"
+      - "${FAQ_INGESTION_PORT:-9020}:9000"
     env_file: .env
     environment:
       NEO4J_URI: bolt://neo4j-unified:7687
@@ -463,7 +391,7 @@ services:
     ports:
       - "5173:5173"
     depends_on:
-      spring-ai-agentic:
+      spring-ai-unified:
         condition: service_started
       langchain-unified:
         condition: service_started

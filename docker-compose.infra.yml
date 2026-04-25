@@ -1,0 +1,295 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Infrastructure overlay — API gateway, event bus, service discovery, logging.
+#
+# Usage:
+#   # Kong + Kafka (typical dev):
+#   docker compose -f docker-compose.master.yml -f docker-compose.infra.yml up -d
+#
+#   # With resource limits:
+#   docker compose -f docker-compose.master.yml -f docker-compose.infra.yml \
+#                  -f docker-compose.resources.yml up -d
+#
+#   # With Consul-based Kong routing:
+#   docker compose -f docker-compose.master.yml -f docker-compose.infra.yml \
+#                  -f docker-compose.kong-consul.yml up -d
+#
+# Start only specific groups with profiles:
+#   --profile gateway   → Kong
+#   --profile events    → Kafka + Zookeeper
+#   --profile discovery → Consul + service-registration labels
+#   --profile konga     → Konga UI (Kong admin dashboard)
+#   --profile elk       → Elasticsearch + Kibana + Logstash
+#   --profile full      → everything
+# ──────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── API Gateway ─────────────────────────────────────────────────────────────
+
+  kong:
+    image: kong:3.7
+    container_name: kong-gateway
+    profiles: ["gateway", "full"]
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /etc/kong/kong.yml
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+      KONG_DNS_STALE_TTL: 3600
+      KONG_DNS_NOT_FOUND_TTL: 1
+      KONG_DNS_ERROR_TTL: 1
+      KONG_DNS_VALID_TTL: 5
+      KONG_UPSTREAM_CONNECT_TIMEOUT: 120000
+      KONG_UPSTREAM_SEND_TIMEOUT: 120000
+      KONG_UPSTREAM_READ_TIMEOUT: 180000
+    volumes:
+      - ./kong/kong.yml:/etc/kong/kong.yml:ro
+    ports:
+      - "9080:8000"
+      - "9081:8001"
+    depends_on:
+      spring-ai-unified:
+        condition: service_started
+      langchain-unified:
+        condition: service_started
+      langgraph-unified:
+        condition: service_started
+      faq-ingestion:
+        condition: service_healthy
+      spring-ai-faq-retrieval:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks:
+      - faq-network
+      - default
+    restart: unless-stopped
+
+  # ── Event Bus ───────────────────────────────────────────────────────────────
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    container_name: faq-zookeeper
+    profiles: ["events", "full"]
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      - faq-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: faq-kafka
+    profiles: ["events", "full"]
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+    networks:
+      - faq-network
+
+  # ── Service Discovery ──────────────────────────────────────────────────────
+
+  consul:
+    image: hashicorp/consul:1.19
+    profiles: ["discovery", "full"]
+    command: agent -server -bootstrap-expect=1 -ui -client=0.0.0.0 -config-dir=/consul/config
+    ports:
+      - "8500:8500"
+      - "8600:8600/tcp"
+      - "8600:8600/udp"
+    volumes:
+      - consul_data:/consul/data
+      - ./consul/config:/consul/config
+    networks:
+      - faq-network
+    restart: unless-stopped
+    labels:
+      SERVICE_IGNORE: "true"
+
+  # Consul service-registration labels (merged onto app services)
+  spring-ai-unified:
+    labels:
+      SERVICE_NAME: spring-ai-unified
+      SERVICE_TAGS: spring,unified,rag
+      SERVICE_CHECK_HTTP: /actuator/health
+      SERVICE_CHECK_INTERVAL: 15s
+      SERVICE_CHECK_TIMEOUT: 3s
+      SERVICE_CHECK_DEREGISTER_AFTER: 1m
+
+  spring-ai-faq-retrieval:
+    labels:
+      SERVICE_NAME: spring-ai-faq-retrieval
+      SERVICE_TAGS: spring,retrieval,shared-service
+      SERVICE_CHECK_HTTP: /actuator/health
+      SERVICE_CHECK_INTERVAL: 15s
+      SERVICE_CHECK_TIMEOUT: 3s
+      SERVICE_CHECK_DEREGISTER_AFTER: 1m
+
+  faq-ingestion:
+    labels:
+      SERVICE_NAME: faq-ingestion
+      SERVICE_TAGS: spring,ingestion,multitenant
+      SERVICE_CHECK_HTTP: /api/faq-ingestion/health
+      SERVICE_CHECK_INTERVAL: 15s
+      SERVICE_CHECK_TIMEOUT: 3s
+      SERVICE_CHECK_DEREGISTER_AFTER: 1m
+
+  langchain-unified:
+    labels:
+      SERVICE_NAME: langchain-unified
+      SERVICE_TAGS: python,langchain,unified,rag
+      SERVICE_CHECK_HTTP: /actuator/health
+      SERVICE_CHECK_INTERVAL: 15s
+      SERVICE_CHECK_TIMEOUT: 3s
+      SERVICE_CHECK_DEREGISTER_AFTER: 1m
+
+  langgraph-unified:
+    labels:
+      SERVICE_NAME: langgraph-unified
+      SERVICE_TAGS: python,langgraph,unified,rag
+      SERVICE_CHECK_HTTP: /actuator/health
+      SERVICE_CHECK_INTERVAL: 15s
+      SERVICE_CHECK_TIMEOUT: 3s
+      SERVICE_CHECK_DEREGISTER_AFTER: 1m
+
+  # ── Kong Admin UI (Konga) ──────────────────────────────────────────────────
+
+  konga-db:
+    image: postgres:11-alpine
+    container_name: konga-db
+    profiles: ["konga", "full"]
+    environment:
+      POSTGRES_USER: konga
+      POSTGRES_PASSWORD: ${KONGA_POSTGRES_PASSWORD}
+      POSTGRES_DB: konga
+    volumes:
+      - konga_db_data_v11:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U konga -d konga"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - faq-network
+    restart: unless-stopped
+
+  konga-prepare:
+    image: pantsel/konga:latest
+    profiles: ["konga", "full"]
+    command: -c prepare -a postgres -u postgresql://konga:${KONGA_POSTGRES_PASSWORD}@konga-db:5432/konga
+    depends_on:
+      konga-db:
+        condition: service_healthy
+    networks:
+      - faq-network
+    restart: "no"
+
+  konga:
+    image: pantsel/konga:latest
+    container_name: konga-ui
+    profiles: ["konga", "full"]
+    environment:
+      NODE_ENV: production
+      TOKEN_SECRET: ${KONGA_TOKEN_SECRET}
+      DB_ADAPTER: postgres
+      DB_URI: postgresql://konga:${KONGA_POSTGRES_PASSWORD}@konga-db:5432/konga
+    ports:
+      - "1337:1337"
+    depends_on:
+      konga-db:
+        condition: service_healthy
+      kong:
+        condition: service_started
+    networks:
+      - faq-network
+    restart: unless-stopped
+
+  # ── ELK Logging (optional heavyweight observability) ────────────────────────
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: elasticsearch
+    profiles: ["elk", "full"]
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9200/_cluster/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - faq-network
+    restart: unless-stopped
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.0
+    container_name: kibana
+    profiles: ["elk", "full"]
+    ports:
+      - "5601:5601"
+    environment:
+      ELASTICSEARCH_HOSTS: "http://elasticsearch:9200"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5601/api/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - faq-network
+    restart: unless-stopped
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.11.0
+    container_name: logstash
+    profiles: ["elk", "full"]
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro
+    environment:
+      - "ES_JAVA_OPTS=-Xms256m -Xmx256m"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - faq-network
+    restart: unless-stopped
+
+volumes:
+  consul_data:
+    driver: local
+  konga_db_data_v11:
+    driver: local
+  elasticsearch_data:
+    driver: local
+
+networks:
+  faq-network:
+    external: false

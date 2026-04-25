@@ -60,37 +60,13 @@ services:
         limits:   { memory: 384m, cpus: '0.5' }
         reservations: { memory: 128m, cpus: '0.1' }
 
-  # ── Spring AI services (JVM — heap bounded to 75% of limit = ~576 m) ────────
+  # ── Spring AI unified service (JVM — heap bounded to 75% of limit) ────────
 
-  spring-ai-agentic:
+  spring-ai-unified:
     deploy:
       resources:
-        limits:   { memory: 768m, cpus: '1.0' }
-        reservations: { memory: 384m, cpus: '0.25' }
-
-  spring-ai-neo4j-graph:
-    deploy:
-      resources:
-        limits:   { memory: 768m, cpus: '1.0' }
-        reservations: { memory: 384m, cpus: '0.25' }
-
-  spring-ai-corrective:
-    deploy:
-      resources:
-        limits:   { memory: 768m, cpus: '1.0' }
-        reservations: { memory: 384m, cpus: '0.25' }
-
-  spring-ai-multimodal:
-    deploy:
-      resources:
-        limits:   { memory: 768m, cpus: '1.0' }
-        reservations: { memory: 384m, cpus: '0.25' }
-
-  spring-ai-hierarchical:
-    deploy:
-      resources:
-        limits:   { memory: 768m, cpus: '1.0' }
-        reservations: { memory: 384m, cpus: '0.25' }
+        limits:   { memory: 1536m, cpus: '2.0' }
+        reservations: { memory: 768m, cpus: '0.5' }
 
   spring-ai-faq-retrieval:
     deploy:
@@ -104,77 +80,29 @@ services:
         limits:   { memory: 1024m, cpus: '1.0' }
         reservations: { memory: 384m, cpus: '0.25' }
 
-  # ── LangChain Python services ────────────────────────────────────────────────
+  # ── LangChain unified service ──────────────────────────────────────────────
 
-  langchain-agentic:
+  langchain-unified:
+    deploy:
+      resources:
+        limits:   { memory: 1024m, cpus: '1.5' }
+        reservations: { memory: 384m, cpus: '0.25' }
+
+  langchain-unified-worker:
     deploy:
       resources:
         limits:   { memory: 768m, cpus: '0.75' }
         reservations: { memory: 256m, cpus: '0.1' }
 
-  langchain-retrieval-service:
+  # ── LangGraph unified service ──────────────────────────────────────────────
+
+  langgraph-unified:
     deploy:
       resources:
-        limits:   { memory: 768m, cpus: '0.75' }
-        reservations: { memory: 256m, cpus: '0.1' }
+        limits:   { memory: 1024m, cpus: '1.5' }
+        reservations: { memory: 384m, cpus: '0.25' }
 
-  langchain-neo4j-graph:
-    deploy:
-      resources:
-        limits:   { memory: 768m, cpus: '0.75' }
-        reservations: { memory: 256m, cpus: '0.1' }
-
-  langchain-corrective:
-    deploy:
-      resources:
-        limits:   { memory: 768m, cpus: '0.75' }
-        reservations: { memory: 256m, cpus: '0.1' }
-
-  langchain-multimodal:
-    deploy:
-      resources:
-        limits:   { memory: 768m, cpus: '0.75' }
-        reservations: { memory: 256m, cpus: '0.1' }
-
-  langchain-hierarchical:
-    deploy:
-      resources:
-        limits:   { memory: 768m, cpus: '0.75' }
-        reservations: { memory: 256m, cpus: '0.1' }
-
-  # ── LangGraph Python services ────────────────────────────────────────────────
-
-  langgraph-agentic:
-    deploy:
-      resources:
-        limits:   { memory: 768m, cpus: '0.75' }
-        reservations: { memory: 256m, cpus: '0.1' }
-
-  langgraph-retrieval-service:
-    deploy:
-      resources:
-        limits:   { memory: 768m, cpus: '0.75' }
-        reservations: { memory: 256m, cpus: '0.1' }
-
-  langgraph-neo4j-graph:
-    deploy:
-      resources:
-        limits:   { memory: 768m, cpus: '0.75' }
-        reservations: { memory: 256m, cpus: '0.1' }
-
-  langgraph-corrective:
-    deploy:
-      resources:
-        limits:   { memory: 768m, cpus: '0.75' }
-        reservations: { memory: 256m, cpus: '0.1' }
-
-  langgraph-multimodal:
-    deploy:
-      resources:
-        limits:   { memory: 768m, cpus: '0.75' }
-        reservations: { memory: 256m, cpus: '0.1' }
-
-  langgraph-hierarchical:
+  langgraph-unified-worker:
     deploy:
       resources:
         limits:   { memory: 768m, cpus: '0.75' }

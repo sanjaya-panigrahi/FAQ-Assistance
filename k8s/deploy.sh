@@ -131,7 +131,8 @@ ensure_secrets() {
       --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
         kubectl -n faq-assistance create secret generic neo4j-secrets \
-            --from-literal=password="neo4j/$neo4j_password" \
+            --from-literal=neo4j-password="$neo4j_password" \
+            --from-literal=neo4j-auth="neo4j/$neo4j_password" \
             --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
         kubectl -n faq-assistance create secret generic konga-secrets \
@@ -271,24 +272,10 @@ if [ "$BUILD_IMAGES" = true ]; then
     echo ""
     
     SERVICES=(
-        "spring-ai-agentic:faq-assistance:spring-ai-agentic-$APP_VERSION"
-        "spring-ai-neo4j-graph:faq-assistance:spring-ai-neo4j-graph-$APP_VERSION"
-        "spring-ai-corrective:faq-assistance:spring-ai-corrective-$APP_VERSION"
-        "spring-ai-multimodal:faq-assistance:spring-ai-multimodal-$APP_VERSION"
-        "spring-ai-hierarchical:faq-assistance:spring-ai-hierarchical-$APP_VERSION"
+        "spring-ai-unified:faq-assistance:spring-ai-unified-$APP_VERSION"
         "spring-ai-faq-retrieval:faq-assistance:spring-ai-faq-retrieval-$APP_VERSION"
-        "langchain-agentic:faq-assistance:langchain-agentic-$APP_VERSION"
-        "langchain-neo4j-graph:faq-assistance:langchain-neo4j-graph-$APP_VERSION"
-        "langchain-corrective:faq-assistance:langchain-corrective-$APP_VERSION"
-        "langchain-multimodal:faq-assistance:langchain-multimodal-$APP_VERSION"
-        "langchain-hierarchical:faq-assistance:langchain-hierarchical-$APP_VERSION"
-        "langchain-retrieval-service:faq-assistance:langchain-retrieval-service-$APP_VERSION"
-        "langgraph-agentic:faq-assistance:langgraph-agentic-$APP_VERSION"
-        "langgraph-neo4j-graph:faq-assistance:langgraph-neo4j-graph-$APP_VERSION"
-        "langgraph-corrective:faq-assistance:langgraph-corrective-$APP_VERSION"
-        "langgraph-multimodal:faq-assistance:langgraph-multimodal-$APP_VERSION"
-        "langgraph-hierarchical:faq-assistance:langgraph-hierarchical-$APP_VERSION"
-        "langgraph-retrieval-service:faq-assistance:langgraph-retrieval-service-$APP_VERSION"
+        "langchain-unified:faq-assistance:langchain-unified-$APP_VERSION"
+        "langgraph-unified:faq-assistance:langgraph-unified-$APP_VERSION"
         "faq-assistance-ui:faq-assistance:faq-ui-$APP_VERSION"
         "rag-analytics:faq-assistance:rag-analytics-$APP_VERSION"
         "spring-ai-faq-ingestion:faq-assistance:faq-ingestion-$APP_VERSION"

@@ -28,11 +28,7 @@ jobs:
         module:
           - spring-ai-faq-retrieval
           - spring-ai-faq-ingestion
-          - spring-ai-agentic
-          - spring-ai-corrective
-          - spring-ai-hierarchical
-          - spring-ai-multimodal
-          - spring-ai-neo4j-graph
+          - spring-ai-unified
 
     steps:
       - uses: actions/checkout@v4
@@ -68,17 +64,9 @@ jobs:
         python-version: ['3.11']
         service:
           - langchain-retrieval-service
-          - langchain-agentic
-          - langchain-corrective
-          - langchain-hierarchical
-          - langchain-multimodal
-          - langchain-neo4j-graph
+          - langchain-unified
           - langgraph-retrieval-service
-          - langgraph-agentic
-          - langgraph-corrective
-          - langgraph-hierarchical
-          - langgraph-multimodal
-          - langgraph-neo4j-graph
+          - langgraph-unified
 
     steps:
       - uses: actions/checkout@v4
@@ -186,17 +174,9 @@ jobs:
       matrix:
         service:
           - langchain-retrieval-service
-          - langchain-agentic
-          - langchain-corrective
-          - langchain-hierarchical
-          - langchain-multimodal
-          - langchain-neo4j-graph
+          - langchain-unified
           - langgraph-retrieval-service
-          - langgraph-agentic
-          - langgraph-corrective
-          - langgraph-hierarchical
-          - langgraph-multimodal
-          - langgraph-neo4j-graph
+          - langgraph-unified
 
     permissions:
       contents: read

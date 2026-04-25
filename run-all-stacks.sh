@@ -9,9 +9,9 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
-SPRING_PORTS=(8081 8082 8083 8084 8085)
-LANGCHAIN_PORTS=(8181 8182 8183 8184 8185 8186)
-LANGGRAPH_PORTS=(8281 8282 8283 8284 8285 8286)
+SPRING_PORTS=(9000)
+LANGCHAIN_PORTS=(8180)
+LANGGRAPH_PORTS=(8280)
 
 REBUILD_MODE="none"
 REBUILD_SERVICES=""
@@ -32,9 +32,9 @@ Options:
   --rebuild-services <csv> Rebuild only specific services (by id or port).
                            Example: --rebuild-services spring-agentic,langgraph-neo4j,8183
     --minimal-demo          Start only demo-critical services (Agentic + Pipeline per framework)
-                                                    Services: chroma-faq, faq-ingestion, spring-ai-agentic, spring-ai-faq-retrieval,
-                                                                        langchain-agentic, langchain-retrieval-service,
-                                                                        langgraph-agentic, langgraph-retrieval-service, faq-ui
+                                                    Services: chroma-faq, faq-ingestion, spring-ai-unified, spring-ai-faq-retrieval,
+                                                                        langchain-unified, langchain-unified-worker,
+                                                                        langgraph-unified, langgraph-unified-worker, faq-ui
     --with-kong             Include Kong gateway overlay
     --with-consul           Include Consul discovery overlay
     --with-kong-consul      Use Kong with Consul DNS discovery (requires --with-kong --with-consul)
@@ -43,14 +43,12 @@ Options:
   -h, --help               Show this help message
 
 Service IDs:
-  spring-agentic, spring-neo4j, spring-corrective, spring-multimodal, spring-hierarchical
-    langchain-agentic, langchain-neo4j, langchain-corrective, langchain-multimodal, langchain-hierarchical, langchain-retrieval
-    langgraph-agentic, langgraph-neo4j, langgraph-corrective, langgraph-multimodal, langgraph-hierarchical, langgraph-retrieval
+  spring (unified port 9000), langchain (unified port 8180), langgraph (unified port 8280)
 
 Examples:
   ./run-all-stacks.sh
   ./run-all-stacks.sh --rebuild spring
-  ./run-all-stacks.sh --rebuild-services spring-agentic,langchain-agentic
+  ./run-all-stacks.sh --rebuild-services spring,langchain
     ./run-all-stacks.sh --with-kong
     ./run-all-stacks.sh --with-kong --with-consul --with-kong-consul --with-konga
     ./run-all-stacks.sh --with-elk
@@ -161,24 +159,10 @@ collect_rebuild_ports() {
         for raw in "${requested[@]}"; do
             svc="$(echo "$raw" | xargs)"
             case "$svc" in
-                spring-agentic) append_port_once 8081 ;;
-                spring-neo4j) append_port_once 8082 ;;
-                spring-corrective) append_port_once 8083 ;;
-                spring-multimodal) append_port_once 8084 ;;
-                spring-hierarchical) append_port_once 8085 ;;
-                langchain-agentic) append_port_once 8181 ;;
-                langchain-neo4j) append_port_once 8182 ;;
-                langchain-corrective) append_port_once 8183 ;;
-                langchain-multimodal) append_port_once 8184 ;;
-                langchain-hierarchical) append_port_once 8185 ;;
-                langchain-retrieval) append_port_once 8186 ;;
-                langgraph-agentic) append_port_once 8281 ;;
-                langgraph-neo4j) append_port_once 8282 ;;
-                langgraph-corrective) append_port_once 8283 ;;
-                langgraph-multimodal) append_port_once 8284 ;;
-                langgraph-hierarchical) append_port_once 8285 ;;
-                langgraph-retrieval) append_port_once 8286 ;;
-                8081|8082|8083|8084|8085|8181|8182|8183|8184|8185|8186|8281|8282|8283|8284|8285|8286)
+                spring) append_port_once 9000 ;;
+                langchain) append_port_once 8180 ;;
+                langgraph) append_port_once 8280 ;;
+                9000|8180|8280)
                     append_port_once "$svc"
                     ;;
                 *)
@@ -216,14 +200,15 @@ else
 fi
 echo -e "${GREEN}✓ Docker Compose found (${COMPOSE_CMD})${NC}"
 
-COMPOSE_FILES=(-f docker-compose.master.yml)
+COMPOSE_FILES=(-f docker-compose.master.yml -f docker-compose.infra.yml)
+COMPOSE_PROFILES=()
 
 if [[ "$WITH_CONSUL" == "true" ]]; then
-    COMPOSE_FILES+=(-f docker-compose.consul.yml)
+    COMPOSE_PROFILES+=(discovery)
 fi
 
 if [[ "$WITH_KONG" == "true" ]]; then
-    COMPOSE_FILES+=(-f docker-compose.kong.yml)
+    COMPOSE_PROFILES+=(gateway)
 fi
 
 if [[ "$WITH_KONG_CONSUL" == "true" ]]; then
@@ -239,11 +224,15 @@ if [[ "$WITH_KONGA" == "true" ]]; then
         echo -e "${RED}--with-konga requires --with-kong${NC}"
         exit 1
     fi
-    COMPOSE_FILES+=(-f docker-compose.konga.yml)
+    COMPOSE_PROFILES+=(konga)
 fi
 
 if [[ "$WITH_ELK" == "true" ]]; then
-    COMPOSE_FILES+=(-f docker-compose.elk.yml)
+    COMPOSE_PROFILES+=(elk)
+fi
+
+if [[ ${#COMPOSE_PROFILES[@]} -gt 0 ]]; then
+    export COMPOSE_PROFILES=$(IFS=,; echo "${COMPOSE_PROFILES[*]}")
 fi
 
 echo -e "${BLUE}Compose overlays:${NC} ${COMPOSE_FILES[*]}"
@@ -274,12 +263,12 @@ if [[ "$MINIMAL_DEMO" == "true" ]]; then
     MINIMAL_SERVICES=(
         chroma-faq
         faq-ingestion
-        spring-ai-agentic
+        spring-ai-unified
         spring-ai-faq-retrieval
-        langchain-agentic
-        langchain-retrieval-service
-        langgraph-agentic
-        langgraph-retrieval-service
+        langchain-unified
+        langchain-unified-worker
+        langgraph-unified
+        langgraph-unified-worker
         faq-ui
     )
 
@@ -312,13 +301,13 @@ echo ""
 
 # Health checks
 if [[ "$MINIMAL_DEMO" == "true" ]]; then
-    SPRING_HEALTH_PORTS=(8081)
-    LANGCHAIN_HEALTH_PORTS=(8181 8186)
-    LANGGRAPH_HEALTH_PORTS=(8281 8286)
+    SPRING_HEALTH_PORTS=(9000)
+    LANGCHAIN_HEALTH_PORTS=(8180)
+    LANGGRAPH_HEALTH_PORTS=(8280)
 else
-    SPRING_HEALTH_PORTS=(8081 8082 8083 8084 8085)
-    LANGCHAIN_HEALTH_PORTS=(8181 8182 8183 8184 8185 8186)
-    LANGGRAPH_HEALTH_PORTS=(8281 8282 8283 8284 8285 8286)
+    SPRING_HEALTH_PORTS=(9000)
+    LANGCHAIN_HEALTH_PORTS=(8180)
+    LANGGRAPH_HEALTH_PORTS=(8280)
 fi
 
 echo -e "${BLUE}Health Check - Spring AI Stack (ports ${SPRING_HEALTH_PORTS[*]}):${NC}"
@@ -364,11 +353,11 @@ if [ -n "$response" ]; then
 else
     echo -e "${RED}✗ ChromaDB (port 8000): DOWN${NC}"
 fi
-response=$(curl -s --max-time 5 http://localhost:9000/api/faq-ingestion/health 2>/dev/null)
+response=$(curl -s --max-time 5 http://localhost:9020/api/faq-ingestion/health 2>/dev/null)
 if echo "$response" | grep -qE '"status":"(UP|DEGRADED)"'; then
-    echo -e "${GREEN}✓ FAQ Ingestion (port 9000): UP${NC}"
+    echo -e "${GREEN}✓ FAQ Ingestion (port 9020): UP${NC}"
 else
-    echo -e "${RED}✗ FAQ Ingestion (port 9000): DOWN${NC}"
+    echo -e "${RED}✗ FAQ Ingestion (port 9020): DOWN${NC}"
 fi
 
 response=$(curl -s --max-time 5 http://localhost:9010/actuator/health 2>/dev/null)
@@ -434,21 +423,21 @@ echo -e "${GREEN}========================================${NC}"
 echo ""
 echo -e "${BLUE}📊 Stack Overview:${NC}"
 if [[ "$MINIMAL_DEMO" == "true" ]]; then
-    echo -e "  Spring AI   (Ports 8081, 9010): Agentic, Retrieval Pipeline"
-    echo -e "  LangChain   (Ports 8181, 8186): Agentic, Retrieval Pipeline"
-    echo -e "  LangGraph   (Ports 8281, 8286): Agentic, Retrieval Pipeline"
+    echo -e "  Spring AI   (Port 9000): Unified (all patterns)"
+    echo -e "  LangChain   (Port 8180): Unified (all patterns)"
+    echo -e "  LangGraph   (Port 8280): Unified (all patterns)"
 else
-    echo -e "  Spring AI   (Ports 8081-8085): Agentic, Graph, Corrective, Multimodal, Hierarchical"
-    echo -e "  LangChain   (Ports 8181-8186): Agentic, Graph, Corrective, Multimodal, Hierarchical, Retrieval"
-    echo -e "  LangGraph   (Ports 8281-8286): Agentic, Graph, Corrective, Multimodal, Hierarchical, Retrieval"
+    echo -e "  Spring AI   (Port 9000): Unified — Agentic, Graph, Corrective, Multimodal, Hierarchical"
+    echo -e "  LangChain   (Port 8180): Unified — Agentic, Graph, Corrective, Multimodal, Hierarchical, Retrieval"
+    echo -e "  LangGraph   (Port 8280): Unified — Agentic, Graph, Corrective, Multimodal, Hierarchical, Retrieval"
 fi
-echo -e "  FAQ Services   (Ports 8000, 9000, 9010): ChromaDB, Ingestion API, Retrieval API"
+echo -e "  FAQ Services   (Ports 8000, 9020, 9010): ChromaDB, Ingestion API, Retrieval API"
 echo ""
 echo -e "${BLUE}🌐 UI Access:${NC}"
 echo -e "  Main UI:              ${GREEN}http://localhost:5173${NC}"
-echo -e "  FAQ Ingestion API:    ${GREEN}http://localhost:9000/api/faq-ingestion/health${NC}"
+echo -e "  FAQ Ingestion API:    ${GREEN}http://localhost:9020/api/faq-ingestion/health${NC}"
 echo -e "  FAQ Retrieval API:    ${GREEN}http://localhost:9010/actuator/health${NC}"
-echo -e "  H2 Console:           ${GREEN}http://localhost:9000/h2-console${NC}"
+echo -e "  H2 Console:           ${GREEN}http://localhost:9020/h2-console${NC}"
 if [[ "$WITH_KONG" == "true" ]]; then
     echo -e "  Kong Proxy:           ${GREEN}http://localhost:9080${NC}"
     echo -e "  Kong Admin API:       ${GREEN}http://localhost:9081${NC}"
@@ -462,19 +451,19 @@ fi
 echo ""
 echo -e "${BLUE}📖 Quick Test Commands:${NC}"
 echo -e "  Compare all backends:"
-echo -e "    ${YELLOW}curl -X POST http://localhost:8081/api/query/ask -H 'Content-Type: application/json' -d '{\"question\":\"What is your return policy?\"}'${NC}"
+echo -e "    ${YELLOW}curl -X POST http://localhost:9000/agentic/api/query/ask -H 'Content-Type: application/json' -d '{\"question\":\"What is your return policy?\"}'${NC}"
 echo ""
 echo -e "  Test LangChain (agentic):"
-echo -e "    ${YELLOW}curl -X POST http://localhost:8181/api/query/ask -H 'Content-Type: application/json' -d '{\"question\":\"What is your return policy?\"}'${NC}"
+echo -e "    ${YELLOW}curl -X POST http://localhost:8180/agentic/api/query/ask -H 'Content-Type: application/json' -d '{\"question\":\"What is your return policy?\"}'${NC}"
 echo ""
-echo -e "  Test LangGraph (neo4j-graph):"
-echo -e "    ${YELLOW}curl -X POST http://localhost:8282/api/query/ask -H 'Content-Type: application/json' -d '{\"question\":\"What is your return policy?\"}'${NC}"
+echo -e "  Test LangGraph (graph):"
+echo -e "    ${YELLOW}curl -X POST http://localhost:8280/graph/api/query/ask -H 'Content-Type: application/json' -d '{\"question\":\"What is your return policy?\"}'${NC}"
 echo ""
 echo -e "  Test LangChain Retrieval:"
-echo -e "    ${YELLOW}curl -X POST http://localhost:8186/api/retrieval/query -H 'Content-Type: application/json' -d '{\"tenantId\":\"smoke_tenant\",\"question\":\"What is your return policy?\"}'${NC}"
+echo -e "    ${YELLOW}curl -X POST http://localhost:8180/retrieval/api/retrieval/query -H 'Content-Type: application/json' -d '{\"tenantId\":\"smoke_tenant\",\"question\":\"What is your return policy?\"}'${NC}"
 echo ""
 echo -e "  Test LangGraph Retrieval:"
-echo -e "    ${YELLOW}curl -X POST http://localhost:8286/api/retrieval/query -H 'Content-Type: application/json' -d '{\"tenantId\":\"smoke_tenant\",\"question\":\"What is your return policy?\"}'${NC}"
+echo -e "    ${YELLOW}curl -X POST http://localhost:8280/retrieval/api/retrieval/query -H 'Content-Type: application/json' -d '{\"tenantId\":\"smoke_tenant\",\"question\":\"What is your return policy?\"}'${NC}"
 echo ""
 echo -e "${BLUE}🛑 To stop all services:${NC}"
 echo -e "  ${YELLOW}${COMPOSE_CMD} ${COMPOSE_FILES[*]} down${NC}"

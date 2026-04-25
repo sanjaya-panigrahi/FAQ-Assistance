@@ -26,11 +26,11 @@ Services started:
   consul
   chroma-faq
   faq-ingestion
-  spring-ai-agentic
+  spring-ai-unified
   spring-ai-faq-retrieval
-  langchain-agentic
+  langchain-unified
   langchain-retrieval-service
-  langgraph-agentic
+  langgraph-unified
   langgraph-retrieval-service
   analytics-mysql
   rag-analytics
@@ -82,22 +82,21 @@ SERVICES=(
     consul
     chroma-faq
     faq-ingestion
-    spring-ai-agentic
+    spring-ai-unified
     spring-ai-faq-retrieval
-    langchain-agentic
-    langchain-retrieval-service
-    langgraph-agentic
-    langgraph-retrieval-service
+    langchain-unified
+    langchain-unified-worker
+    langgraph-unified
+    langgraph-unified-worker
     analytics-mysql
     rag-analytics
 )
 
 COMPOSE_FILES=(
     -f docker-compose.master.yml
-    -f docker-compose.consul.yml
-    -f docker-compose.kong.yml
-    -f docker-compose.konga.yml
+    -f docker-compose.infra.yml
 )
+export COMPOSE_PROFILES=gateway,discovery,konga
 
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}Agentic + RAG Only Launcher${NC}"
@@ -123,26 +122,10 @@ if [[ ! -f .env && -f .env.example ]]; then
 fi
 
 # List of services NOT needed for Agentic + RAG only
-UNWANTED_SERVICES=(
-    spring-ai-neo4j-graph
-    spring-ai-corrective
-    spring-ai-multimodal
-    spring-ai-hierarchical
-    langchain-neo4j-graph
-    langchain-corrective
-    langchain-multimodal
-    langchain-hierarchical
-    langgraph-neo4j-graph
-    langgraph-corrective
-    langgraph-multimodal
-    langgraph-hierarchical
-)
+# No unwanted services in unified architecture — all patterns run in one container
+UNWANTED_SERVICES=()
 
-UNWANTED_CONTAINERS=(
-    neo4j-spring
-    neo4j-langchain
-    neo4j-langgraph
-)
+UNWANTED_CONTAINERS=()
 
 echo -e "${BLUE}Cleaning up unwanted services...${NC}"
 for service in "${UNWANTED_SERVICES[@]}"; do
@@ -162,12 +145,12 @@ echo -e "${BLUE}Starting required containers only (Agentic + RAG pipelines)...${
 "${COMPOSE_BIN[@]}" "${COMPOSE_FILES[@]}" up --build -d --no-deps faq-ingestion
 
 # Start Agentic + Retrieval services for each framework
-"${COMPOSE_BIN[@]}" "${COMPOSE_FILES[@]}" up --build -d --no-deps spring-ai-agentic
+"${COMPOSE_BIN[@]}" "${COMPOSE_FILES[@]}" up --build -d --no-deps spring-ai-unified
 "${COMPOSE_BIN[@]}" "${COMPOSE_FILES[@]}" up --build -d --no-deps spring-ai-faq-retrieval
-"${COMPOSE_BIN[@]}" "${COMPOSE_FILES[@]}" up --build -d --no-deps langchain-agentic
-"${COMPOSE_BIN[@]}" "${COMPOSE_FILES[@]}" up --build -d --no-deps langchain-retrieval-service
-"${COMPOSE_BIN[@]}" "${COMPOSE_FILES[@]}" up --build -d --no-deps langgraph-agentic
-"${COMPOSE_BIN[@]}" "${COMPOSE_FILES[@]}" up --build -d --no-deps langgraph-retrieval-service
+"${COMPOSE_BIN[@]}" "${COMPOSE_FILES[@]}" up --build -d --no-deps langchain-unified
+"${COMPOSE_BIN[@]}" "${COMPOSE_FILES[@]}" up --build -d --no-deps langchain-unified-worker
+"${COMPOSE_BIN[@]}" "${COMPOSE_FILES[@]}" up --build -d --no-deps langgraph-unified
+"${COMPOSE_BIN[@]}" "${COMPOSE_FILES[@]}" up --build -d --no-deps langgraph-unified-worker
 
 # Start infrastructure services
 "${COMPOSE_BIN[@]}" "${COMPOSE_FILES[@]}" up --build -d --no-deps consul
@@ -204,8 +187,8 @@ echo -e "  ${YELLOW}curl -s http://localhost:8500/v1/status/leader${NC}"
 echo -e "  ${YELLOW}curl -s http://localhost:9081/services${NC}"
 echo -e "  ${YELLOW}curl -s http://localhost:9080/spring/agentic/actuator/health${NC}"
 echo -e "  ${YELLOW}curl -s -o /dev/null -w '%{http_code}\n' http://localhost:1337${NC}"
-echo -e "  ${YELLOW}curl -s http://localhost:8081/actuator/health${NC}"
-echo -e "  ${YELLOW}curl -s http://localhost:8186/actuator/health${NC}"
-echo -e "  ${YELLOW}curl -s http://localhost:8286/actuator/health${NC}"
+echo -e "  ${YELLOW}curl -s http://localhost:9000/actuator/health${NC}"
+echo -e "  ${YELLOW}curl -s http://localhost:8180/actuator/health${NC}"
+echo -e "  ${YELLOW}curl -s http://localhost:8280/actuator/health${NC}"
 echo -e "  ${YELLOW}open http://localhost:5173${NC}"
 echo -e "  ${YELLOW}open http://localhost:1337${NC}"

@@ -45,12 +45,12 @@ const enabledServiceIds = new Set(["agentic", "retrieval", "graph"]);
 // Base URLs keyed by [framework][serviceId]
 const serviceUrls = {
   "spring-ai": {
-    agentic: resolveApiUrl("VITE_SPRING_AGENTIC_API_URL", "http://localhost:8081/api", "/spring/agentic/api"),
+    agentic: resolveApiUrl("VITE_SPRING_AGENTIC_API_URL", "http://localhost:9000/agentic/api", "/spring/agentic/api"),
     retrieval: resolveApiUrl("VITE_SPRING_RETRIEVAL_API_URL", "http://localhost:9010/api", "/spring/retrieval/api"),
-    graph: resolveApiUrl("VITE_SPRING_GRAPH_API_URL", "http://localhost:8082/api", "/spring/graph/api"),
-    corrective: resolveApiUrl("VITE_SPRING_CORRECTIVE_API_URL", "http://localhost:8083/api", "/spring/corrective/api"),
-    multimodal: resolveApiUrl("VITE_SPRING_MULTIMODAL_API_URL", "http://localhost:8084/api", "/spring/multimodal/api"),
-    hierarchical: resolveApiUrl("VITE_SPRING_HIERARCHICAL_API_URL", "http://localhost:8085/api", "/spring/hierarchical/api"),
+    graph: resolveApiUrl("VITE_SPRING_GRAPH_API_URL", "http://localhost:9000/graph/api", "/spring/graph/api"),
+    corrective: resolveApiUrl("VITE_SPRING_CORRECTIVE_API_URL", "http://localhost:9000/corrective/api", "/spring/corrective/api"),
+    multimodal: resolveApiUrl("VITE_SPRING_MULTIMODAL_API_URL", "http://localhost:9000/multimodal/api", "/spring/multimodal/api"),
+    hierarchical: resolveApiUrl("VITE_SPRING_HIERARCHICAL_API_URL", "http://localhost:9000/hierarchical/api", "/spring/hierarchical/api"),
   },
   langchain: {
     agentic: resolveApiUrl("VITE_LANGCHAIN_AGENTIC_API_URL", "http://localhost:8180/agentic/api", "/langchain/agentic/api"),

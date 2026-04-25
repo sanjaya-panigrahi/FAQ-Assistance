@@ -1,13 +1,13 @@
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: spring-ai-agentic-pdb
+  name: spring-ai-unified-pdb
   namespace: faq-assistance
 spec:
   minAvailable: 1
   selector:
     matchLabels:
-      app: spring-ai-agentic
+      app: spring-ai-unified
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget

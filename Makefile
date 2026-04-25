@@ -18,19 +18,19 @@ help:
 	@echo "  check-tools            Validate local prerequisites"
 	@echo "  setup-env              Create missing .env files from examples"
 	@echo ""
-	@echo "Spring AI (Java, ports 8081-8085):"
+	@echo "Spring AI (Java, port 9000 unified):"
 	@echo "  spring-build           Build Spring AI services"
 	@echo "  spring-up              Start Spring AI services"
 	@echo "  spring-down            Stop Spring AI services"
 	@echo "  spring-test            Test Spring AI endpoints"
 	@echo ""
-	@echo "LangChain (Python, ports 8181-8185):"
+	@echo "LangChain (Python, port 8180 unified):"
 	@echo "  langchain-build        Build LangChain services"
 	@echo "  langchain-up           Start LangChain services"
 	@echo "  langchain-down         Stop LangChain services"
 	@echo "  langchain-test         Test LangChain endpoints"
 	@echo ""
-	@echo "LangGraph (Python, ports 8281-8285):"
+	@echo "LangGraph (Python, port 8280 unified):"
 	@echo "  langgraph-build        Build LangGraph services"
 	@echo "  langgraph-up           Start LangGraph services"
 	@echo "  langgraph-down         Stop LangGraph services"
@@ -71,21 +71,22 @@ build-all: spring-build langchain-build langgraph-build
 up-all: check-tools setup-env spring-up langchain-up langgraph-up
 	@echo "✓ All stacks running"
 	@echo ""
-	@echo "Spring AI UI:  http://localhost:5173"
-	@echo "LangChain:     http://localhost:8181-8185"
-	@echo "LangGraph:     http://localhost:8281-8285"
+	@echo "Spring AI:     http://localhost:9000 (unified)"
+	@echo "LangChain:     http://localhost:8180 (unified)"
+	@echo "LangGraph:     http://localhost:8280 (unified)"
+	@echo "UI:            http://localhost:5173"
 
 # Starts all stacks with per-container memory/CPU caps to prevent OOM on local machines
 up-all-limited:
 	@echo "Starting all stacks with resource limits..."
 	@$(MAKE) check-tools setup-env
-	docker compose -f docker-compose.master.yml -f docker-compose.resources.yml -f docker-compose.kong.yml up -d --build --remove-orphans
+	COMPOSE_PROFILES=gateway,events docker compose -f docker-compose.master.yml -f docker-compose.infra.yml -f docker-compose.resources.yml up -d --build --remove-orphans
 	@echo "✓ All stacks running with memory/CPU limits"
 
 ui-refresh:
 	@echo "Rebuilding and refreshing FAQ UI only..."
-	docker compose -f docker-compose.master.yml -f docker-compose.kong.yml build faq-ui
-	docker compose -f docker-compose.master.yml -f docker-compose.kong.yml up -d --no-deps --force-recreate faq-ui
+	COMPOSE_PROFILES=gateway docker compose -f docker-compose.master.yml -f docker-compose.infra.yml build faq-ui
+	COMPOSE_PROFILES=gateway docker compose -f docker-compose.master.yml -f docker-compose.infra.yml up -d --no-deps --force-recreate faq-ui
 	@curl -sS -o /dev/null -w 'UI status: %{http_code}\n' http://localhost:5173/
 	@echo "✓ FAQ UI refreshed"
 
@@ -107,7 +108,7 @@ rebuild-indexes: spring-rebuild-indexes langchain-rebuild-indexes langgraph-rebu
 
 clean:
 	@$(MAKE) down-all
-	@docker compose -f docker-compose.kafka.yml down >/dev/null 2>&1 || true
+	@COMPOSE_PROFILES=events docker compose -f docker-compose.infra.yml down >/dev/null 2>&1 || true
 	docker compose -f docker-compose.master.yml down --remove-orphans
 	@echo "✓ Containers removed"
 
@@ -159,17 +160,15 @@ kong-smoke-all:
 phase3-smoke-events:
 	@echo "Running Phase 3 event smoke check (Kafka producer+consumer + Spring graph task lifecycle)..."
 	@$(MAKE) kafka-up
-	@echo "Packaging spring-ai-neo4j-graph on host..."
-	@cd spring-ai-neo4j-graph && mvn -q -DskipTests package
-	@echo "Building spring-ai-neo4j-graph runtime image with latest host-built jar..."
-	@docker build -t faq-assistance-spring-ai-neo4j-graph:latest -f spring-ai-neo4j-graph/Dockerfile.runtime spring-ai-neo4j-graph
-	@echo "Recreating spring-ai-neo4j-graph with event producer/consumer enabled..."
+	@echo "Building spring-ai-unified..."
+	@cd spring-ai-unified && mvn -q -DskipTests package
+	@echo "Recreating spring-ai-unified with event producer/consumer enabled..."
 	@APP_EVENTS_ENABLED=true APP_EVENTS_CONSUMER_ENABLED=true APP_EVENTS_TOPIC=graph.tasks.lifecycle.v1 APP_EVENTS_CONSUMER_GROUP_ID=phase3-smoke-consumer KAFKA_BOOTSTRAP_SERVERS=faq-kafka:29092 \
-		docker compose -f docker-compose.master.yml up -d --force-recreate spring-ai-neo4j-graph
+		docker compose -f docker-compose.master.yml up -d --force-recreate spring-ai-unified
 	@stats_json=""; \
 		ready=0; \
 		for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do \
-			stats_json=$$(curl -fsS --max-time 3 http://localhost:8082/api/events/stats 2>/dev/null || true); \
+			stats_json=$$(curl -fsS --max-time 3 http://localhost:9000/graph/api/events/stats 2>/dev/null || true); \
 			if [ -n "$$stats_json" ]; then ready=1; break; fi; \
 			echo "  waiting for spring events endpoint ($$i/30)..."; \
 			sleep 1; \
@@ -178,12 +177,12 @@ phase3-smoke-events:
 		initial_total=$$(echo "$$stats_json" | sed -n 's/.*"totalConsumed":\([0-9]*\).*/\1/p'); \
 		if [ -z "$$initial_total" ]; then echo "✗ Could not read initial totalConsumed"; exit 1; fi; \
 		echo "initial consumed events: $$initial_total"; \
-		task_id=$$(curl -sS -X POST http://localhost:8082/api/index/rebuild | sed -n 's/.*"taskId":"\([^"]*\)".*/\1/p'); \
+		task_id=$$(curl -sS -X POST http://localhost:9000/graph/api/index/rebuild | sed -n 's/.*"taskId":"\([^"]*\)".*/\1/p'); \
 		if [ -z "$$task_id" ]; then echo "✗ Spring task id missing"; exit 1; fi; \
 		echo "spring task: $$task_id"; \
 		task_done=0; \
 		for i in $$(seq 1 180); do \
-			status=$$(curl -sS http://localhost:8082/api/tasks/$$task_id | awk -F'"status":"' 'NF>1{split($$2,a,"\""); print a[1]}'); \
+			status=$$(curl -sS http://localhost:9000/graph/api/tasks/$$task_id | awk -F'"status":"' 'NF>1{split($$2,a,"\""); print a[1]}'); \
 			echo "  spring poll $$i: $$status"; \
 			if [ "$$status" = "COMPLETE" ]; then task_done=1; break; fi; \
 			if [ "$$status" = "FAILED" ]; then echo "✗ Spring task failed"; exit 1; fi; \
@@ -192,7 +191,7 @@ phase3-smoke-events:
 		if [ "$$task_done" -ne 1 ]; then echo "✗ Spring task did not reach COMPLETE in time"; exit 1; fi; \
 		events_ok=0; \
 		for i in $$(seq 1 30); do \
-			current_total=$$(curl -sS http://localhost:8082/api/events/stats | sed -n 's/.*"totalConsumed":\([0-9]*\).*/\1/p'); \
+			current_total=$$(curl -sS http://localhost:9000/graph/api/events/stats | sed -n 's/.*"totalConsumed":\([0-9]*\).*/\1/p'); \
 			if [ -z "$$current_total" ]; then current_total=$$initial_total; fi; \
 			echo "  event poll $$i: totalConsumed=$$current_total"; \
 			if [ "$$current_total" -gt "$$initial_total" ]; then events_ok=1; break; fi; \
@@ -200,19 +199,19 @@ phase3-smoke-events:
 		done; \
 		if [ "$$events_ok" -ne 1 ]; then \
 			echo "✗ Event stats did not increase after rebuild"; \
-			curl -sS http://localhost:8082/api/events/stats; echo; \
+			curl -sS http://localhost:9000/graph/api/events/stats; echo; \
 			exit 1; \
 		fi
 	@echo "✓ Phase 3 event smoke check passed"
 
 kafka-up:
 	@echo "Starting Kafka infrastructure for Phase 3..."
-	docker compose -f docker-compose.kafka.yml up -d
+	COMPOSE_PROFILES=events docker compose -f docker-compose.master.yml -f docker-compose.infra.yml up -d zookeeper kafka
 	@echo "✓ Kafka available on localhost:9092"
 
 kafka-down:
 	@echo "Stopping Kafka infrastructure..."
-	docker compose -f docker-compose.kafka.yml down
+	COMPOSE_PROFILES=events docker compose -f docker-compose.infra.yml stop zookeeper kafka
 	@echo "✓ Kafka stack stopped"
 
 # === Spring AI (Java) ===
@@ -232,75 +231,61 @@ spring-down:
 
 spring-rebuild-indexes:
 	@echo "Rebuilding Spring AI FAQ indexes..."
-	@for port in 8081 8082 8083 8084 8085; do \
-		echo "  Port $$port..."; \
-		curl -s -X POST http://localhost:$$port/api/index/rebuild > /dev/null 2>&1; \
+	@for pattern in agentic corrective hierarchical multimodal graph; do \
+		echo "  $$pattern..."; \
+		curl -s -X POST http://localhost:9000/$$pattern/api/index/rebuild > /dev/null 2>&1; \
 	done
 
 spring-test:
-	@echo "Testing Spring AI endpoints..."
-	@curl -s http://localhost:8081/actuator/health | grep -q "UP" && echo "✓ Port 8081" || echo "✗ Port 8081"
-	@curl -s http://localhost:8082/actuator/health | grep -q "UP" && echo "✓ Port 8082" || echo "✗ Port 8082"
-	@curl -s http://localhost:8083/actuator/health | grep -q "UP" && echo "✓ Port 8083" || echo "✗ Port 8083"
-	@curl -s http://localhost:8084/actuator/health | grep -q "UP" && echo "✓ Port 8084" || echo "✗ Port 8084"
-	@curl -s http://localhost:8085/actuator/health | grep -q "UP" && echo "✓ Port 8085" || echo "✗ Port 8085"
+	@echo "Testing Spring AI unified endpoint..."
+	@curl -s http://localhost:9000/actuator/health | grep -q "UP" && echo "✓ spring-ai-unified :9000" || echo "✗ spring-ai-unified :9000"
 
 # === LangChain (Python) ===
 
 langchain-build:
-	@echo "Building LangChain services..."
-	docker compose -f docker-compose.langchain.yml build
+	@echo "Building LangChain unified service..."
+	docker compose -f docker-compose.master.yml build langchain-unified langchain-unified-worker
 
 langchain-up:
-	@echo "Starting LangChain services..."
-	cp -n .env.langchain.example .env.langchain || true
-	docker compose -f docker-compose.langchain.yml up -d
+	@echo "Starting LangChain unified service..."
+	docker compose -f docker-compose.master.yml up -d langchain-unified langchain-unified-worker
 
 langchain-down:
-	@echo "Stopping LangChain services..."
-	docker compose -f docker-compose.langchain.yml down
+	@echo "Stopping LangChain unified service..."
+	docker compose -f docker-compose.master.yml stop langchain-unified langchain-unified-worker
 
 langchain-rebuild-indexes:
 	@echo "Rebuilding LangChain FAQ indexes..."
-	@for port in 8181 8182 8183 8184 8185; do \
-		echo "  Port $$port..."; \
-		curl -s -X POST http://localhost:$$port/api/index/rebuild > /dev/null 2>&1; \
+	@for pattern in agentic corrective hierarchical multimodal graph retrieval; do \
+		echo "  $$pattern..."; \
+		curl -s -X POST http://localhost:8180/$$pattern/api/index/rebuild > /dev/null 2>&1; \
 	done
 
 langchain-test:
-	@echo "Testing LangChain endpoints..."
-	@curl -fsS http://localhost:8181/actuator/health | grep -q '"status"[[:space:]]*:[[:space:]]*"UP"' && echo "✓ Port 8181" || echo "✗ Port 8181"
-	@curl -fsS http://localhost:8182/actuator/health | grep -q '"status"[[:space:]]*:[[:space:]]*"UP"' && echo "✓ Port 8182" || echo "✗ Port 8182"
-	@curl -fsS http://localhost:8183/actuator/health | grep -q '"status"[[:space:]]*:[[:space:]]*"UP"' && echo "✓ Port 8183" || echo "✗ Port 8183"
-	@curl -fsS http://localhost:8184/actuator/health | grep -q '"status"[[:space:]]*:[[:space:]]*"UP"' && echo "✓ Port 8184" || echo "✗ Port 8184"
-	@curl -fsS http://localhost:8185/actuator/health | grep -q '"status"[[:space:]]*:[[:space:]]*"UP"' && echo "✓ Port 8185" || echo "✗ Port 8185"
+	@echo "Testing LangChain unified endpoint..."
+	@curl -fsS http://localhost:8180/actuator/health | grep -q '"status"[[:space:]]*:[[:space:]]*"UP"' && echo "✓ langchain-unified :8180" || echo "✗ langchain-unified :8180"
 
 # === LangGraph (Python) ===
 
 langgraph-build:
-	@echo "Building LangGraph services..."
-	docker compose -f docker-compose.langgraph.yml build
+	@echo "Building LangGraph unified service..."
+	docker compose -f docker-compose.master.yml build langgraph-unified langgraph-unified-worker
 
 langgraph-up:
-	@echo "Starting LangGraph services..."
-	cp -n .env.langgraph.example .env.langgraph || true
-	docker compose -f docker-compose.langgraph.yml up -d
+	@echo "Starting LangGraph unified service..."
+	docker compose -f docker-compose.master.yml up -d langgraph-unified langgraph-unified-worker
 
 langgraph-down:
-	@echo "Stopping LangGraph services..."
-	docker compose -f docker-compose.langgraph.yml down
+	@echo "Stopping LangGraph unified service..."
+	docker compose -f docker-compose.master.yml stop langgraph-unified langgraph-unified-worker
 
 langgraph-rebuild-indexes:
 	@echo "Rebuilding LangGraph FAQ indexes..."
-	@for port in 8281 8282 8283 8284 8285; do \
-		echo "  Port $$port..."; \
-		curl -s -X POST http://localhost:$$port/api/index/rebuild > /dev/null 2>&1; \
+	@for pattern in agentic corrective hierarchical multimodal graph retrieval; do \
+		echo "  $$pattern..."; \
+		curl -s -X POST http://localhost:8280/$$pattern/api/index/rebuild > /dev/null 2>&1; \
 	done
 
 langgraph-test:
-	@echo "Testing LangGraph endpoints..."
-	@curl -fsS http://localhost:8281/actuator/health | grep -q '"status"[[:space:]]*:[[:space:]]*"UP"' && echo "✓ Port 8281" || echo "✗ Port 8281"
-	@curl -fsS http://localhost:8282/actuator/health | grep -q '"status"[[:space:]]*:[[:space:]]*"UP"' && echo "✓ Port 8282" || echo "✗ Port 8282"
-	@curl -fsS http://localhost:8283/actuator/health | grep -q '"status"[[:space:]]*:[[:space:]]*"UP"' && echo "✓ Port 8283" || echo "✗ Port 8283"
-	@curl -fsS http://localhost:8284/actuator/health | grep -q '"status"[[:space:]]*:[[:space:]]*"UP"' && echo "✓ Port 8284" || echo "✗ Port 8284"
-	@curl -fsS http://localhost:8285/actuator/health | grep -q '"status"[[:space:]]*:[[:space:]]*"UP"' && echo "✓ Port 8285" || echo "✗ Port 8285"
+	@echo "Testing LangGraph unified endpoint..."
+	@curl -fsS http://localhost:8280/actuator/health | grep -q '"status"[[:space:]]*:[[:space:]]*"UP"' && echo "✓ langgraph-unified :8280" || echo "✗ langgraph-unified :8280"
