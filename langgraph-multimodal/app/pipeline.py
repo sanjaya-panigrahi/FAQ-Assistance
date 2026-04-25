@@ -17,10 +17,14 @@ NO_CONTEXT_ANSWER = (
 
 
 class MultimodalPipeline:
+    def __init__(self) -> None:
+        self._chroma_client = chromadb.HttpClient(host=settings.chroma_host, port=settings.chroma_port)
+        self._embeddings = OpenAIEmbeddings(model=settings.openai_embedding_model)
+        self._llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
+
     def health(self) -> dict:
         try:
-            client = chromadb.HttpClient(host=settings.chroma_host, port=settings.chroma_port)
-            client.heartbeat()
+            self._chroma_client.heartbeat()
             return {"status": "UP", "backend": "chromadb"}
         except Exception as exc:
             return {"status": "DEGRADED", "backend": "chromadb", "error": str(exc)}
@@ -33,11 +37,10 @@ class MultimodalPipeline:
         tenant = (customer_id or "default").strip()
         collection = f"{settings.chroma_collection_prefix}{tenant}"
 
-        embeddings = OpenAIEmbeddings(model=settings.openai_embedding_model)
         vector_store = Chroma(
-            client=chromadb.HttpClient(host=settings.chroma_host, port=settings.chroma_port),
+            client=self._chroma_client,
             collection_name=collection,
-            embedding_function=embeddings,
+            embedding_function=self._embeddings,
         )
 
         use_image_branch = bool((image_description or "").strip())
@@ -52,7 +55,7 @@ class MultimodalPipeline:
             )
         context = "\n\n".join(doc.page_content for doc in docs)
 
-        llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
+        llm = self._llm
         answer = llm.invoke(
             [
                 (

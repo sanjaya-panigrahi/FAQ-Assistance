@@ -17,10 +17,14 @@ NO_CONTEXT_ANSWER = (
 
 
 class CorrectivePipeline:
+    def __init__(self) -> None:
+        self._chroma_client = chromadb.HttpClient(host=settings.chroma_host, port=settings.chroma_port)
+        self._embeddings = OpenAIEmbeddings(model=settings.openai_embedding_model)
+        self._llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
+
     def health(self) -> dict:
         try:
-            client = chromadb.HttpClient(host=settings.chroma_host, port=settings.chroma_port)
-            client.heartbeat()
+            self._chroma_client.heartbeat()
             return {"status": "UP", "backend": "chromadb"}
         except Exception as exc:
             return {"status": "DEGRADED", "backend": "chromadb", "error": str(exc)}
@@ -33,15 +37,14 @@ class CorrectivePipeline:
         tenant = (customer_id or "default").strip()
         collection = f"{settings.chroma_collection_prefix}{tenant}"
 
-        embeddings = OpenAIEmbeddings(model=settings.openai_embedding_model)
         vector_store = Chroma(
-            client=chromadb.HttpClient(host=settings.chroma_host, port=settings.chroma_port),
+            client=self._chroma_client,
             collection_name=collection,
-            embedding_function=embeddings,
+            embedding_function=self._embeddings,
         )
         docs = vector_store.similarity_search(question, k=6)
 
-        llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
+        llm = self._llm
         if not docs:
             return RagResponse(
                 answer=NO_CONTEXT_ANSWER,

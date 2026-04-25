@@ -55,6 +55,7 @@ public class RetrievalPipelineService {
     private static final Pattern MULTI_SPACE = Pattern.compile("\\s+");
 
     private final Map<String, float[]> embeddingCache = new ConcurrentHashMap<>();
+    private final Map<String, String> collectionIdCache = new ConcurrentHashMap<>();
     private final ChatClient chatClient;
     private final EmbeddingModel embeddingModel;
     private final ObjectMapper objectMapper;
@@ -392,6 +393,10 @@ public class RetrievalPipelineService {
     }
 
     private String resolveCollectionId(String collectionName) {
+        String cached = collectionIdCache.get(collectionName);
+        if (cached != null) {
+            return cached;
+        }
         try {
             String url = chromaUrl + "/api/v1/collections?name=" + collectionName;
             String response = webClient.get()
@@ -404,40 +409,46 @@ public class RetrievalPipelineService {
             }
 
             Object payload = objectMapper.readValue(response, Object.class);
+            String resolvedId = null;
             if (payload instanceof Map<?, ?> map) {
                 Map<String, Object> data = castMap(map);
                 if (data.get("id") != null) {
-                    return String.valueOf(data.get("id"));
+                    resolvedId = String.valueOf(data.get("id"));
                 }
-                if (data.get("collections") instanceof List<?> list && !list.isEmpty() && list.get(0) instanceof Map<?, ?> col) {
+                if (resolvedId == null && data.get("collections") instanceof List<?> list && !list.isEmpty() && list.get(0) instanceof Map<?, ?> col) {
                     for (Object item : list) {
                         if (item instanceof Map<?, ?> c) {
                             Map<String, Object> candidate = castMap(c);
                             Object name = candidate.get("name");
                             if (name != null && collectionName.equals(String.valueOf(name))) {
                                 Object id = candidate.get("id");
-                                return id == null ? null : String.valueOf(id);
+                                resolvedId = id == null ? null : String.valueOf(id);
+                                break;
                             }
                         }
                     }
                 }
             }
-            if (payload instanceof List<?> list && !list.isEmpty()) {
+            if (resolvedId == null && payload instanceof List<?> list && !list.isEmpty()) {
                 for (Object item : list) {
                     if (item instanceof Map<?, ?> c) {
                         Map<String, Object> candidate = castMap(c);
                         Object name = candidate.get("name");
                         if (name != null && collectionName.equals(String.valueOf(name))) {
                             Object id = candidate.get("id");
-                            return id == null ? null : String.valueOf(id);
+                            resolvedId = id == null ? null : String.valueOf(id);
+                            break;
                         }
                     }
                 }
             }
+            if (resolvedId != null) {
+                collectionIdCache.put(collectionName, resolvedId);
+            }
+            return resolvedId;
         } catch (Exception ignored) {
             return null;
         }
-        return null;
     }
 
     private boolean checkHeartbeat(String path) throws IOException, InterruptedException {

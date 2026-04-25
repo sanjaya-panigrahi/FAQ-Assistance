@@ -410,7 +410,7 @@ services:
     container_name: redis-cache
     ports:
       - "6379:6379"
-    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    command: redis-server --appendonly yes --maxmemory 200mb --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data
     healthcheck:
@@ -484,7 +484,7 @@ services:
     environment:
       SERVER_PORT: 9010
       RETRIEVAL_SERVICE_PORT: 9010
-      JAVA_OPTS: "-Xms1g -Xmx2g"
+      JAVA_OPTS: "-Xms512m -Xmx768m"
     depends_on:
       chroma-faq:
         condition: service_healthy

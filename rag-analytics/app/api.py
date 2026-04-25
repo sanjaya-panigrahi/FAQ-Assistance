@@ -76,8 +76,8 @@ def get_dashboard(
         / func.count(QueryEvent.id)
     )
 
-    # Add time window filter (last 7 days) to improve query performance
-    time_window = datetime.utcnow() - timedelta(days=7)
+    # Add time window filter (last 30 days) to improve query performance
+    time_window = datetime.utcnow() - timedelta(days=30)
     leaderboard_stmt = (
         select(
             QueryEvent.framework,
@@ -89,7 +89,7 @@ def get_dashboard(
         )
         .where(QueryEvent.created_at >= time_window, *filters)
         .group_by(QueryEvent.framework, QueryEvent.rag_pattern)
-        .having(func.count(QueryEvent.id) >= 2)  # Only include patterns with 2+ runs
+        .having(func.count(QueryEvent.id) >= 1)  # Include patterns with 1+ runs
         .order_by(func.avg(QueryEvent.effective_rag_score).desc(), func.avg(QueryEvent.latency_ms).asc())
         .limit(12)
     )

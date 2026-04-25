@@ -1,6 +1,7 @@
 import re
 import time
 import json
+from functools import lru_cache
 
 import chromadb
 import redis
@@ -20,11 +21,16 @@ class RetrievalPipeline:
             port=settings.redis_port,
             decode_responses=True,
         )
+        self._chroma_client = chromadb.HttpClient(
+            host=settings.chroma_host, port=settings.chroma_port,
+        )
+        self._embeddings = OpenAIEmbeddings(model=settings.openai_embedding_model)
+        self._llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
+        self._embedding_cache: dict[str, list[float]] = {}
 
     def health(self) -> dict:
         try:
-            client = chromadb.HttpClient(host=settings.chroma_host, port=settings.chroma_port)
-            client.heartbeat()
+            self._chroma_client.heartbeat()
             return {"status": "UP", "backend": "chromadb"}
         except Exception:
             return {"status": "DEGRADED", "backend": "chromadb"}
@@ -113,18 +119,16 @@ class RetrievalPipeline:
         similarity_threshold: float,
     ) -> list[dict]:
         collection_name = f"{settings.chroma_collection_prefix}{tenant_id or 'default'}"
-        client = chromadb.HttpClient(host=settings.chroma_host, port=settings.chroma_port)
-        embeddings = OpenAIEmbeddings(model=settings.openai_embedding_model)
         vector_store = Chroma(
-            client=client,
+            client=self._chroma_client,
             collection_name=collection_name,
-            embedding_function=embeddings,
+            embedding_function=self._embeddings,
         )
 
         candidate_map: dict[tuple[str, int | None, str], dict] = {}
         vector_hits = vector_store.similarity_search_with_relevance_scores(
             transformed_query,
-            k=max(top_k * 3, 8),
+            k=max(top_k * 2, 6),
         )
         for doc, score in vector_hits:
             source = str(doc.metadata.get("source", "unknown"))
@@ -142,30 +146,12 @@ class RetrievalPipeline:
             )
             candidate["vector_score"] = max(candidate["vector_score"], float(score))
 
-        collection = client.get_collection(collection_name)
+        # Score lexical overlap only on vector-retrieved candidates (not the full collection)
         lexical_query_tokens = self._tokenize(transformed_query)
-        raw_chunks = collection.get(include=["documents", "metadatas"])
-        documents = raw_chunks.get("documents") or []
-        metadatas = raw_chunks.get("metadatas") or []
-
-        for index, content in enumerate(documents):
-            metadata = metadatas[index] if index < len(metadatas) else {}
-            source = str((metadata or {}).get("source", "unknown"))
-            chunk_number = (metadata or {}).get("chunk_number")
-            key = (source, chunk_number, content[:120])
-            candidate = candidate_map.setdefault(
-                key,
-                {
-                    "content": content,
-                    "source": source,
-                    "chunk_number": chunk_number,
-                    "vector_score": 0.0,
-                    "lexical_score": 0.0,
-                },
-            )
+        for candidate in candidate_map.values():
             candidate["lexical_score"] = max(
                 candidate["lexical_score"],
-                self._lexical_score(lexical_query_tokens, self._tokenize(content)),
+                self._lexical_score(lexical_query_tokens, self._tokenize(candidate["content"])),
             )
 
         ranked: list[dict] = []
@@ -196,7 +182,7 @@ class RetrievalPipeline:
         ]
         context = "\n\n".join(context_lines)
 
-        llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
+        llm = self._llm
         customer_label = (tenant_id or "the company").strip()
         prompt = [
             (

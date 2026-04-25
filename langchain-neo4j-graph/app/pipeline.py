@@ -22,6 +22,8 @@ class GraphPipeline:
     def __init__(self) -> None:
         self._graph_client = None
         self._llm = None
+        self._chroma_client = chromadb.HttpClient(host=settings.chroma_host, port=settings.chroma_port)
+        self._embeddings = OpenAIEmbeddings(model=settings.openai_embedding_model)
 
     def _get_graph_client(self) -> Neo4jGraph | None:
         if self._graph_client is None:
@@ -56,8 +58,7 @@ class GraphPipeline:
 
     def health(self) -> dict:
         try:
-            chroma = chromadb.HttpClient(host=settings.chroma_host, port=settings.chroma_port)
-            chroma.heartbeat()
+            self._chroma_client.heartbeat()
             graph_client = self._get_graph_client()
             count_rows = graph_client.query("MATCH (f:FaqEntry) RETURN count(f) AS total") if graph_client else []
             total = int(count_rows[0]["total"]) if count_rows else 0
@@ -94,9 +95,9 @@ class GraphPipeline:
         tenant = (customer_id or "default").strip()
         collection = f"{settings.chroma_collection_prefix}{tenant}"
 
-        embeddings = OpenAIEmbeddings(model=settings.openai_embedding_model)
+        embeddings = self._embeddings
         vector_store = Chroma(
-            client=chromadb.HttpClient(host=settings.chroma_host, port=settings.chroma_port),
+            client=self._chroma_client,
             collection_name=collection,
             embedding_function=embeddings,
         )

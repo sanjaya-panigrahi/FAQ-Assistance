@@ -15,6 +15,10 @@ class AgenticPipeline:
     CHROMA_TENANT = "default_tenant"
     CHROMA_DATABASE = "default_database"
 
+    def __init__(self) -> None:
+        self._embeddings = OpenAIEmbeddings(model=settings.openai_embedding_model)
+        self._llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
+
     def health(self) -> dict:
         try:
             self._chroma_get("/api/v2/heartbeat")
@@ -30,7 +34,7 @@ class AgenticPipeline:
         tenant = (customer_id or "default").strip()
         collection = f"{settings.chroma_collection_prefix}{tenant}"
 
-        embeddings = OpenAIEmbeddings(model=settings.openai_embedding_model)
+        embeddings = self._embeddings
         collection_payload = self._get_collection(collection)
         if not collection_payload:
             return RagResponse(
@@ -61,7 +65,7 @@ class AgenticPipeline:
                 orchestrationStrategy="langgraph-multistep-routing",
             )
 
-        llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
+        llm = self._llm
         customer_label = (tenant or "the company").strip()
         answer = llm.invoke(
             [

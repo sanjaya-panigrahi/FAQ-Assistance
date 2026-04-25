@@ -15,6 +15,8 @@ from .schemas import VisionRagRequest, VisionRagResponse
 router = APIRouter()
 ORCHESTRATION_STRATEGY = "langgraph-multimodal-branching"
 
+_vision_llm = ChatOpenAI(model=settings.openai_vision_model, temperature=0)
+
 
 def _compose_image_context(image_description: str, image: UploadFile | None) -> str:
     details = []
@@ -34,7 +36,7 @@ def _extract_visual_signals(image_bytes: bytes, content_type: str) -> str:
     if not image_bytes:
         return ""
 
-    llm = ChatOpenAI(model=settings.openai_vision_model, temperature=0)
+    llm = _vision_llm
     image_b64 = base64.b64encode(image_bytes).decode("ascii")
     message = HumanMessage(
         content=[
@@ -74,7 +76,7 @@ def _evaluate_consistency(user_notes: str, visual_signals: str) -> tuple[str | N
     if not notes or not signals:
         return None, None, []
 
-    llm = ChatOpenAI(model=settings.openai_vision_model, temperature=0)
+    llm = _vision_llm
     prompt = (
         "You compare user image notes with extracted visual signals.\n"
         "Return ONLY valid JSON with keys: label, score, reasons.\n"

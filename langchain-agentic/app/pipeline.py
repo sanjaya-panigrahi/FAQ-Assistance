@@ -17,10 +17,14 @@ NO_CONTEXT_ANSWER = (
 
 
 class AgenticPipeline:
+    def __init__(self) -> None:
+        self._chroma_client = chromadb.HttpClient(host=settings.chroma_host, port=settings.chroma_port)
+        self._embeddings = OpenAIEmbeddings(model=settings.openai_embedding_model)
+        self._llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
+
     def health(self) -> dict:
         try:
-            client = chromadb.HttpClient(host=settings.chroma_host, port=settings.chroma_port)
-            client.heartbeat()
+            self._chroma_client.heartbeat()
             return {"status": "UP", "backend": "chromadb"}
         except Exception:
             return {"status": "DEGRADED", "backend": "chromadb"}
@@ -32,12 +36,10 @@ class AgenticPipeline:
         _t0 = time.perf_counter()
         collection_name = f"{settings.chroma_collection_prefix}{customer_id or 'default'}"
         try:
-            client = chromadb.HttpClient(host=settings.chroma_host, port=settings.chroma_port)
-            embeddings = OpenAIEmbeddings(model=settings.openai_embedding_model)
             vector_store = Chroma(
-                client=client,
+                client=self._chroma_client,
                 collection_name=collection_name,
-                embedding_function=embeddings,
+                embedding_function=self._embeddings,
             )
             retriever = vector_store.as_retriever(search_kwargs={"k": 6})
         except Exception as exc:
@@ -55,9 +57,7 @@ class AgenticPipeline:
         combined_context = "\n\n".join(doc.page_content for doc in docs)
 
         customer_label = (customer_id or "the company").strip()
-        llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
-
-        result = llm.invoke(
+        result = self._llm.invoke(
             [
                 (
                     "system",
