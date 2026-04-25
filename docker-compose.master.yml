@@ -122,53 +122,14 @@ services:
     networks:
       - faq-network
 
-  # LangChain Stack
+  # LangChain Unified (replaces 6 individual langchain-* services)
 
-  langchain-agentic:
+  langchain-unified:
     build:
-      context: ./langchain-agentic
+      context: ./langchain-unified
+    container_name: langchain-unified
     ports:
-      - "8181:8000"
-    env_file: .env
-    environment:
-      APP_PORT: 8000
-      NEO4J_URI: bolt://neo4j-unified:7687
-    depends_on:
-      neo4j-unified:
-        condition: service_healthy
-      zipkin:
-        condition: service_started
-    volumes:
-      - ./shared-data:/opt/data:ro
-    networks:
-      - faq-network
-
-  langchain-retrieval-service:
-    build:
-      context: ./langchain-retrieval-service
-    ports:
-      - "8186:8000"
-    env_file: .env
-    environment:
-      APP_PORT: 8000
-      NEO4J_URI: bolt://neo4j-unified:7687
-    depends_on:
-      neo4j-unified:
-        condition: service_healthy
-      chroma-faq:
-        condition: service_healthy
-      zipkin:
-        condition: service_started
-    volumes:
-      - ./shared-data:/opt/data:ro
-    networks:
-      - faq-network
-
-  langchain-neo4j-graph:
-    build:
-      context: ./langchain-neo4j-graph
-    ports:
-      - "8182:8000"
+      - "8180:8000"
     env_file: .env
     environment:
       APP_PORT: 8000
@@ -177,16 +138,28 @@ services:
     depends_on:
       neo4j-unified:
         condition: service_healthy
+      chroma-faq:
+        condition: service_healthy
+      redis-cache:
+        condition: service_healthy
       zipkin:
         condition: service_started
     volumes:
       - ./shared-data:/opt/data:ro
     networks:
       - faq-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    restart: unless-stopped
 
-  langchain-neo4j-graph-worker:
+  langchain-unified-worker:
     build:
-      context: ./langchain-neo4j-graph
+      context: ./langchain-unified
+    container_name: langchain-unified-worker
     command: celery -A app.celery_app.celery_app worker --loglevel=info --concurrency=2
     env_file: .env
     environment:
@@ -199,117 +172,20 @@ services:
         condition: service_healthy
       redis-cache:
         condition: service_healthy
-      zipkin:
-        condition: service_started
     volumes:
       - ./shared-data:/opt/data:ro
     networks:
       - faq-network
+    restart: unless-stopped
 
-  langchain-corrective:
+  # LangGraph Unified (replaces 6 individual langgraph-* services)
+
+  langgraph-unified:
     build:
-      context: ./langchain-corrective
+      context: ./langgraph-unified
+    container_name: langgraph-unified
     ports:
-      - "8183:8000"
-    env_file: .env
-    environment:
-      APP_PORT: 8000
-      NEO4J_URI: bolt://neo4j-unified:7687
-    depends_on:
-      neo4j-unified:
-        condition: service_healthy
-      zipkin:
-        condition: service_started
-    volumes:
-      - ./shared-data:/opt/data:ro
-    networks:
-      - faq-network
-
-  langchain-multimodal:
-    build:
-      context: ./langchain-multimodal
-    ports:
-      - "8184:8000"
-    env_file: .env
-    environment:
-      APP_PORT: 8000
-      NEO4J_URI: bolt://neo4j-unified:7687
-    depends_on:
-      neo4j-unified:
-        condition: service_healthy
-      zipkin:
-        condition: service_started
-    volumes:
-      - ./shared-data:/opt/data:ro
-    networks:
-      - faq-network
-
-  langchain-hierarchical:
-    build:
-      context: ./langchain-hierarchical
-    ports:
-      - "8185:8000"
-    env_file: .env
-    environment:
-      APP_PORT: 8000
-      NEO4J_URI: bolt://neo4j-unified:7687
-    depends_on:
-      neo4j-unified:
-        condition: service_healthy
-      zipkin:
-        condition: service_started
-    volumes:
-      - ./shared-data:/opt/data:ro
-    networks:
-      - faq-network
-
-  # LangGraph Stack
-
-  langgraph-agentic:
-    build:
-      context: ./langgraph-agentic
-    ports:
-      - "8281:8000"
-    env_file: .env
-    environment:
-      APP_PORT: 8000
-      NEO4J_URI: bolt://neo4j-unified:7687
-    depends_on:
-      neo4j-unified:
-        condition: service_healthy
-      zipkin:
-        condition: service_started
-    volumes:
-      - ./shared-data:/opt/data:ro
-    networks:
-      - faq-network
-
-  langgraph-retrieval-service:
-    build:
-      context: ./langgraph-retrieval-service
-    ports:
-      - "8286:8000"
-    env_file: .env
-    environment:
-      APP_PORT: 8000
-      NEO4J_URI: bolt://neo4j-unified:7687
-    depends_on:
-      neo4j-unified:
-        condition: service_healthy
-      chroma-faq:
-        condition: service_healthy
-      zipkin:
-        condition: service_started
-    volumes:
-      - ./shared-data:/opt/data:ro
-    networks:
-      - faq-network
-
-  langgraph-neo4j-graph:
-    build:
-      context: ./langgraph-neo4j-graph
-    ports:
-      - "8282:8000"
+      - "8280:8000"
     env_file: .env
     environment:
       APP_PORT: 8000
@@ -318,16 +194,28 @@ services:
     depends_on:
       neo4j-unified:
         condition: service_healthy
+      chroma-faq:
+        condition: service_healthy
+      redis-cache:
+        condition: service_healthy
       zipkin:
         condition: service_started
     volumes:
       - ./shared-data:/opt/data:ro
     networks:
       - faq-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    restart: unless-stopped
 
-  langgraph-neo4j-graph-worker:
+  langgraph-unified-worker:
     build:
-      context: ./langgraph-neo4j-graph
+      context: ./langgraph-unified
+    container_name: langgraph-unified-worker
     command: celery -A app.celery_app.celery_app worker --loglevel=info --concurrency=2
     env_file: .env
     environment:
@@ -340,69 +228,11 @@ services:
         condition: service_healthy
       redis-cache:
         condition: service_healthy
-      zipkin:
-        condition: service_started
     volumes:
       - ./shared-data:/opt/data:ro
     networks:
       - faq-network
-
-  langgraph-corrective:
-    build:
-      context: ./langgraph-corrective
-    ports:
-      - "8283:8000"
-    env_file: .env
-    environment:
-      APP_PORT: 8000
-      NEO4J_URI: bolt://neo4j-unified:7687
-    depends_on:
-      neo4j-unified:
-        condition: service_healthy
-      zipkin:
-        condition: service_started
-    volumes:
-      - ./shared-data:/opt/data:ro
-    networks:
-      - faq-network
-
-  langgraph-multimodal:
-    build:
-      context: ./langgraph-multimodal
-    ports:
-      - "8284:8000"
-    env_file: .env
-    environment:
-      APP_PORT: 8000
-      NEO4J_URI: bolt://neo4j-unified:7687
-    depends_on:
-      neo4j-unified:
-        condition: service_healthy
-      zipkin:
-        condition: service_started
-    volumes:
-      - ./shared-data:/opt/data:ro
-    networks:
-      - faq-network
-
-  langgraph-hierarchical:
-    build:
-      context: ./langgraph-hierarchical
-    ports:
-      - "8285:8000"
-    env_file: .env
-    environment:
-      APP_PORT: 8000
-      NEO4J_URI: bolt://neo4j-unified:7687
-    depends_on:
-      neo4j-unified:
-        condition: service_healthy
-      zipkin:
-        condition: service_started
-    volumes:
-      - ./shared-data:/opt/data:ro
-    networks:
-      - faq-network
+    restart: unless-stopped
 
   # Redis Cache for Query Response Caching
   redis-cache:
@@ -635,9 +465,9 @@ services:
     depends_on:
       spring-ai-agentic:
         condition: service_started
-      langchain-agentic:
+      langchain-unified:
         condition: service_started
-      langgraph-agentic:
+      langgraph-unified:
         condition: service_started
       faq-ingestion:
         condition: service_healthy
