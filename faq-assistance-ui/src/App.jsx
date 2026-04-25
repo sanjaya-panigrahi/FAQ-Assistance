@@ -84,7 +84,7 @@ function App() {
   const [mode, setMode] = useState("compare");
   const [selectedServiceId, setSelectedServiceId] = useState("agentic");
   const [framework, setFramework] = useState("spring-ai");
-  const [customer, setCustomer] = useState("mytechstore");
+  const [customer, setCustomer] = useState("");
   const [customers, setCustomers] = useState(fallbackCustomers);
   const [question, setQuestion] = useState("What is your laptop return policy?");
   const [imageDescription, setImageDescription] = useState("");
@@ -422,7 +422,8 @@ function App() {
   const hasQuestion = trimmedQuestion.length > 0;
   const hasTranscript = transcript.length > 0;
   const searchEnabled = true;
-  const canAsk = searchEnabled && !loading && !uploadingFaq && hasQuestion;
+  const hasCustomer = trimmedCustomerId.length > 0;
+  const canAsk = searchEnabled && !loading && !uploadingFaq && hasQuestion && hasCustomer;
   const canExport = !loading && hasTranscript;
   const canStartNewConversation = !loading && (hasTranscript || Boolean(error) || Boolean(uploadedFaqName));
   const canUploadFaq = !loading && !uploadingFaq && selectedFaqFiles.length > 0;
@@ -792,16 +793,25 @@ function App() {
       }
 
       if (!Array.isArray(data) || data.length === 0) {
-        setCustomers(fallbackCustomers);
-        setCustomer((currentCustomer) => currentCustomer || fallbackCustomers[0].customerId);
+        setCustomers([]);
+        setCustomer("");
         setCustomerStatus("Ingestion service is reachable, but no customers exist yet. Create one below.");
         return;
       }
 
-      const nextCustomers = data.map((entry) => ({
-        customerId: entry.customerId,
-        name: entry.name || entry.customerId,
-      }));
+      const nextCustomers = data
+        .filter((entry) => entry.documentCount > 0)
+        .map((entry) => ({
+          customerId: entry.customerId,
+          name: entry.name || entry.customerId,
+        }));
+
+      if (nextCustomers.length === 0) {
+        setCustomers([]);
+        setCustomer("");
+        setCustomerStatus("No customers with ingested documents found. Upload FAQ data first.");
+        return;
+      }
 
       setCustomers(nextCustomers);
       setCustomer((currentCustomer) => {
@@ -810,9 +820,10 @@ function App() {
           ? targetCustomerId
           : nextCustomers[0].customerId;
       });
-      setCustomerStatus(`Loaded ${nextCustomers.length} customer${nextCustomers.length === 1 ? "" : "s"} from the ingestion service.`);
+      setCustomerStatus(`Loaded ${nextCustomers.length} customer${nextCustomers.length === 1 ? "" : "s"} with data from the ingestion service.`);
     } catch (requestError) {
       setCustomers(fallbackCustomers);
+      setCustomer((currentCustomer) => currentCustomer || fallbackCustomers[0].customerId);
       setCustomerStatus(requestError.message || "Could not reach the ingestion service. Using the local fallback customer list.");
     }
   }
@@ -2236,6 +2247,7 @@ function App() {
             <label>
               <span>Customer</span>
               <select value={customer} onChange={(event) => setCustomer(event.target.value)}>
+                <option value="" disabled>Select Customer</option>
                 {customers.map((option) => (
                   <option key={option.customerId} value={option.customerId}>
                     {option.name}

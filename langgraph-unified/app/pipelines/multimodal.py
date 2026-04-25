@@ -10,6 +10,7 @@ from collections.abc import Generator
 from ..analytics_client import post_analytics_event
 from ..cached_embeddings import CachedOpenAIEmbeddings
 from ..config import settings
+from ..response_cache import response_cache
 from ..schemas import VisionRagResponse
 from ..streaming import stream_llm_response
 
@@ -46,6 +47,11 @@ class MultimodalPipeline:
     def ask(self, question: str, image_description: str, customer_id: str | None = None) -> VisionRagResponse:
         _t0 = time.perf_counter()
         tenant = (customer_id or "default").strip()
+
+        cached = response_cache.get("langgraph-multimodal", tenant, f"{question}|{image_description}")
+        if cached:
+            return VisionRagResponse(**cached)
+
         collection = f"{settings.chroma_collection_prefix}{tenant}"
 
         vector_store = Chroma(
@@ -94,6 +100,7 @@ class MultimodalPipeline:
             latency_ms=int((time.perf_counter() - _t0) * 1000),
             context_docs=context,
         )
+        response_cache.put("langgraph-multimodal", tenant, f"{question}|{image_description}", response.model_dump())
         return response
 
     def ask_stream(self, question: str, image_description: str, customer_id: str | None = None) -> Generator[str, None, None]:

@@ -12,6 +12,7 @@ from ..analytics_client import post_analytics_event
 from ..cached_embeddings import CachedOpenAIEmbeddings
 from ..config import settings
 from ..faq_parser import parse_faq_entries
+from ..response_cache import response_cache
 from ..schemas import GraphRagResponse as RagResponse
 from ..streaming import stream_llm_response
 
@@ -94,6 +95,11 @@ class GraphPipeline:
     def ask(self, question: str, customer_id: str | None = None) -> RagResponse:
         _t0 = time.perf_counter()
         tenant = (customer_id or "default").strip()
+
+        cached = response_cache.get("langgraph-graph", tenant, question)
+        if cached:
+            return RagResponse(**cached)
+
         collection = f"{settings.chroma_collection_prefix}{tenant}"
 
         embeddings = self._embeddings
@@ -157,6 +163,7 @@ class GraphPipeline:
             latency_ms=int((time.perf_counter() - _t0) * 1000),
             context_docs=f"{vector_context}\n\n{graph_context}".strip(),
         )
+        response_cache.put("langgraph-graph", tenant, question, response.model_dump())
         return response
 
     def ask_stream(self, question: str, customer_id: str | None = None) -> Generator[str, None, None]:

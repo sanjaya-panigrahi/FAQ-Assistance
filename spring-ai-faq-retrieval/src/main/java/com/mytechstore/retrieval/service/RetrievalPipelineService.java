@@ -405,11 +405,9 @@ public class RetrievalPipelineService {
                 ServerSentEvent.<String>builder().event("done").data("").build()
             );
         }
-        String transformedQuery = transformQuery(question);
-        float[] embedding = embeddingModel.embed(transformedQuery);
-        List<Float> embeddingList = new ArrayList<>();
-        for (float f : embedding) embeddingList.add(f);
-        List<ChunkCandidate> reranked = hybridRetrieveAndRerank(collectionId, transformedQuery, embeddingList, defaultTopK);
+        String transformedQuery = transformQuery(question, null);
+        List<ChunkCandidate> candidates = hybridRetrieve(tenantId, transformedQuery, Math.max(defaultTopK * 4, defaultTopK));
+        List<ChunkCandidate> reranked = rerank(candidates, defaultTopK, defaultThreshold);
         if (reranked.isEmpty()) {
             return Flux.just(
                 ServerSentEvent.<String>builder().event("meta").data("{\"chunksUsed\":0,\"strategy\":\"query-transform+hybrid-retrieval+rerank+grounded-generation\"}").build(),
