@@ -3,6 +3,7 @@ import json
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
 
@@ -165,3 +166,18 @@ async def ask_with_image(
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/api/query/ask-stream")
+async def ask_stream(request: VisionRagRequest, current_user: TokenPayload | None = Depends(get_current_user_optional)):
+    question = request.question.strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="question is required")
+    customer_id = request.customerId or (current_user.tenant_id if current_user else None)
+    if not customer_id:
+        raise HTTPException(status_code=400, detail="customerId is required")
+    return StreamingResponse(
+        pipeline.ask_stream(question, request.imageDescription.strip(), customer_id),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

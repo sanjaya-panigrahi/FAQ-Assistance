@@ -27,8 +27,11 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.neo4j.core.Neo4jClient;
+import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+
+import reactor.core.publisher.Flux;
 
 @Service
 public class GraphPipelineService {
@@ -159,6 +162,49 @@ public class GraphPipelineService {
                 "neo4j-graph", "chroma-direct+neo4j-graph", 0,
                 vectorContext + "\n\n" + graphContext);
         return response;
+    }
+
+    public Flux<ServerSentEvent<String>> askStream(String question, String customerId) {
+        List<String> chromaChunks = queryChroma(customerId, question, defaultTopK);
+        String vectorContext;
+        int vectorCount;
+        if (!chromaChunks.isEmpty()) {
+            vectorContext = String.join("\n\n", chromaChunks);
+            vectorCount = chromaChunks.size();
+        } else {
+            if (!indexed.get()) { rebuildIndex(); }
+            List<Document> vectorHits = vectorStore.similaritySearch(
+                SearchRequest.builder().query(question).topK(defaultTopK).build());
+            vectorContext = vectorHits.stream().map(Document::getText).collect(Collectors.joining("\n\n"));
+            vectorCount = vectorHits.size();
+        }
+        List<String> tokens = extractSearchTokens(question);
+        List<String> graphFacts = neo4jClient.query(
+                "UNWIND $tokens AS token "
+                    + "MATCH (f:FaqChunk) "
+                    + "WHERE toLower(f.text) CONTAINS token "
+                    + "RETURN f.text AS text, count(*) AS score "
+                    + "ORDER BY score DESC "
+                    + "LIMIT 3")
+            .bind(tokens.isEmpty() ? List.of(normalize(question)) : tokens).to("tokens")
+            .fetch().all().stream()
+            .map(row -> row.get("text").toString())
+            .distinct()
+            .toList();
+        String graphContext = String.join("\n", graphFacts);
+        String customerLabel = (customerId != null && !customerId.isBlank()) ? customerId.trim() : "the company";
+        String prompt = "You are a FAQ assistant for " + customerLabel + ". "
+            + "Answer the user's question using ONLY the provided FAQ context below. "
+            + "Answer concisely and factually.\n\n"
+            + "Vector context:\n" + vectorContext + "\n\n"
+            + "Graph facts:\n" + graphContext + "\n\nQuestion: " + question;
+
+        String metaJson = "{\"chunksUsed\":" + vectorCount + ",\"graphFacts\":" + graphFacts.size() + ",\"strategy\":\"chroma-direct+neo4j-graph\",\"orchestrationStrategy\":\"springai-neo4j-graph\"}";
+        ServerSentEvent<String> metaEvent = ServerSentEvent.<String>builder().event("meta").data(metaJson).build();
+        ServerSentEvent<String> doneEvent = ServerSentEvent.<String>builder().event("done").data("").build();
+        Flux<ServerSentEvent<String>> tokenStream = chatClient.prompt().user(prompt).stream().content()
+            .map(chunk -> ServerSentEvent.<String>builder().event("token").data(chunk).build());
+        return Flux.concat(Flux.just(metaEvent), tokenStream, Flux.just(doneEvent));
     }
 
         private List<String> queryChroma(String customerId, String question, int topK) {

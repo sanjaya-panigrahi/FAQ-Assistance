@@ -1472,6 +1472,123 @@ function App() {
     }
   }
 
+  async function runQueryStream(service, prompt, requestId, resultIndex, overrideUrl) {
+    const startedAt = performance.now();
+    const baseUrl = overrideUrl ?? resolveUrl(framework, service.id);
+    const fwLabel = frameworkOptions.find((option) => option.value === framework)?.label || "Spring AI";
+
+    try {
+      const isMultimodalUpload = service.id === "multimodal" && uploadedImage;
+      if (isMultimodalUpload) {
+        return runQuery(service, prompt, overrideUrl);
+      }
+
+      let endpoint = service.id === "retrieval"
+        ? `${baseUrl}/retrieval/query-stream`
+        : `${baseUrl}/query/ask-stream`;
+      let payload;
+
+      if (service.id === "retrieval") {
+        payload = { tenantId: trimmedCustomerId, question: prompt, topK: 4, similarityThreshold: 0.35 };
+      } else if (service.id === "multimodal") {
+        payload = { question: prompt, customerId: trimmedCustomerId, imageDescription };
+      } else {
+        payload = { question: prompt, customerId: trimmedCustomerId };
+      }
+
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(errText || `Request failed with status ${response.status}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let answer = "";
+      let meta = {};
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (line.startsWith("event:")) {
+            var currentEvent = line.slice(6).trim();
+          } else if (line.startsWith("data:") && currentEvent) {
+            const data = line.slice(5);
+            if (currentEvent === "meta") {
+              try { meta = JSON.parse(data); } catch {}
+            } else if (currentEvent === "token") {
+              answer += data;
+              setTranscript((prev) => prev.map((turn) => {
+                if (turn.id !== requestId) return turn;
+                const updatedResults = [...turn.results];
+                updatedResults[resultIndex] = {
+                  ...updatedResults[resultIndex],
+                  answer,
+                  status: "streaming",
+                };
+                return { ...turn, results: updatedResults };
+              }));
+            } else if (currentEvent === "done") {
+              // final
+            }
+            currentEvent = null;
+          }
+        }
+      }
+
+      const result = {
+        serviceId: service.id,
+        serviceLabel: service.label,
+        frameworkLabel: fwLabel,
+        answer: answer || "No answer returned.",
+        strategy: meta.strategy || meta.orchestrationStrategy || "",
+        rawData: meta,
+        meta: normalizeMeta(service.id, meta),
+        latencyMs: Math.round(performance.now() - startedAt),
+        status: "success",
+      };
+
+      setTranscript((prev) => prev.map((turn) => {
+        if (turn.id !== requestId) return turn;
+        const updatedResults = [...turn.results];
+        updatedResults[resultIndex] = result;
+        return { ...turn, results: updatedResults };
+      }));
+
+      return result;
+    } catch (requestError) {
+      const result = {
+        serviceId: service.id,
+        serviceLabel: service.label,
+        frameworkLabel: fwLabel,
+        answer: requestError.message || "Unable to reach backend.",
+        strategy: "",
+        rawData: null,
+        meta: [],
+        latencyMs: Math.round(performance.now() - startedAt),
+        status: "error",
+      };
+      setTranscript((prev) => prev.map((turn) => {
+        if (turn.id !== requestId) return turn;
+        const updatedResults = [...turn.results];
+        updatedResults[resultIndex] = result;
+        return { ...turn, results: updatedResults };
+      }));
+      return result;
+    }
+  }
+
   async function runCompare(prompt) {
     // Fire all three framework backends in parallel for the selected RAG pattern.
     return Promise.all(
@@ -1565,21 +1682,50 @@ function App() {
 
     try {
       const requestId = crypto.randomUUID();
-      const results = mode === "compare"
-        ? await runCompare(trimmedQuestion)
-        : await Promise.all(activeServices.map((service) => runQuery(service, trimmedQuestion)));
-      setTranscript((currentTranscript) => [
-        ...currentTranscript,
-        {
-          id: requestId,
-          question: trimmedQuestion,
-          customer,
-          framework,
-          ragPattern: selectedService.label,
-          mode,
-          results,
-        },
-      ]);
+      let results;
+      if (mode === "compare") {
+        results = await runCompare(trimmedQuestion);
+        setTranscript((currentTranscript) => [
+          ...currentTranscript,
+          {
+            id: requestId,
+            question: trimmedQuestion,
+            customer,
+            framework,
+            ragPattern: selectedService.label,
+            mode,
+            results,
+          },
+        ]);
+      } else {
+        // Streaming mode for single-service queries
+        const placeholders = activeServices.map((service) => ({
+          serviceId: service.id,
+          serviceLabel: service.label,
+          frameworkLabel: frameworkOptions.find((o) => o.value === framework)?.label || "Spring AI",
+          answer: "",
+          strategy: "",
+          rawData: null,
+          meta: [],
+          latencyMs: 0,
+          status: "streaming",
+        }));
+        setTranscript((currentTranscript) => [
+          ...currentTranscript,
+          {
+            id: requestId,
+            question: trimmedQuestion,
+            customer,
+            framework,
+            ragPattern: selectedService.label,
+            mode,
+            results: placeholders,
+          },
+        ]);
+        results = await Promise.all(
+          activeServices.map((service, idx) => runQueryStream(service, trimmedQuestion, requestId, idx))
+        );
+      }
       await persistAnalyticsEvents({
         requestId,
         modeValue: mode,
@@ -2574,7 +2720,7 @@ function App() {
                   {turn.results.map((result) => (
                     <div key={result.serviceId} className={`result-card ${result.status}`}>
                       <h3>{result.frameworkLabel || result.serviceLabel}</h3>
-                      <p className="result-answer">{result.answer}</p>
+                      <p className="result-answer">{result.answer}{result.status === "streaming" ? "▌" : ""}</p>
                       <p className="result-latency">Latency: {result.latencyMs} ms</p>
                       {false && (
                         <div className="meta-block">

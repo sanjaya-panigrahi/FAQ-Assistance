@@ -27,8 +27,11 @@ import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+
+import reactor.core.publisher.Flux;
 
 @Service
 public class VisionPipelineService {
@@ -111,6 +114,33 @@ public class VisionPipelineService {
         analyticsReporter.postEvent(question, answer, customerId != null ? customerId : "default",
                 "multimodal", "chroma-direct+multimodal-context", 0, context);
         return response;
+    }
+
+    public Flux<ServerSentEvent<String>> askStream(String question, String imageDescription, String customerId) {
+        List<String> chromaChunks = queryChroma(customerId, question, defaultTopK);
+        String context;
+        int chunksUsed;
+        if (!chromaChunks.isEmpty()) {
+            context = String.join("\n\n", chromaChunks);
+            chunksUsed = chromaChunks.size();
+        } else {
+            if (!indexed.get()) { rebuildIndex(); }
+            List<Document> hits = retrieveRelevantDocuments(question, defaultTopK);
+            context = hits.stream().map(Document::getText).collect(Collectors.joining("\n\n"));
+            chunksUsed = hits.size();
+        }
+        String customerLabel = (customerId != null && !customerId.isBlank()) ? customerId.trim() : "the company";
+        String prompt = "You are a FAQ assistant for " + customerLabel + ". "
+            + "Answer the user's question using ONLY the provided FAQ context below. "
+            + "Answer concisely and factually.\n\n"
+            + "FAQ context:\n" + context + "\n\nQuestion: " + question;
+
+        String metaJson = "{\"chunksUsed\":" + chunksUsed + ",\"strategy\":\"chroma-direct+multimodal-context\",\"orchestrationStrategy\":\"springai-multimodal-rag\"}";
+        ServerSentEvent<String> metaEvent = ServerSentEvent.<String>builder().event("meta").data(metaJson).build();
+        ServerSentEvent<String> doneEvent = ServerSentEvent.<String>builder().event("done").data("").build();
+        Flux<ServerSentEvent<String>> tokens = chatClient.prompt().user(prompt).stream().content()
+            .map(chunk -> ServerSentEvent.<String>builder().event("token").data(chunk).build());
+        return Flux.concat(Flux.just(metaEvent), tokens, Flux.just(doneEvent));
     }
 
     private List<String> queryChroma(String customerId, String question, int topK) {

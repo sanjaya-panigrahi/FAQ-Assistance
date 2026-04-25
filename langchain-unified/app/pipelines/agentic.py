@@ -5,10 +5,13 @@ import chromadb
 from langchain_chroma import Chroma
 from langchain_openai import ChatOpenAI
 
+from collections.abc import Generator
+
 from ..analytics_client import post_analytics_event
 from ..cached_embeddings import CachedOpenAIEmbeddings
 from ..config import settings
 from ..schemas import RagResponse
+from ..streaming import stream_llm_response
 
 
 NO_CONTEXT_ANSWER = (
@@ -95,7 +98,35 @@ class AgenticPipeline:
         )
         return response
 
+    def ask_stream(self, question: str, customer_id: str | None = None) -> Generator[str, None, None]:
+        collection_name = f"{settings.chroma_collection_prefix}{customer_id or 'default'}"
+        try:
+            vector_store = Chroma(
+                client=self._chroma_client,
+                collection_name=collection_name,
+                embedding_function=self._embeddings,
+            )
+            retriever = vector_store.as_retriever(search_kwargs={"k": 6})
+        except Exception as exc:
+            raise RuntimeError(f"ChromaDB connection failed for collection {collection_name}") from exc
 
+        docs = retriever.invoke(question)
+        if not docs:
+            from ..streaming import sse_event
+            yield sse_event("meta", {"chunksUsed": 0, "strategy": "chroma-direct+fallback-no-context", "orchestrationStrategy": "langchain-agent"})
+            yield sse_event("done", {"answer": NO_CONTEXT_ANSWER})
+            return
+
+        combined_context = "\n\n".join(doc.page_content for doc in docs)
+        customer_label = (customer_id or "the company").strip()
+        messages = [
+            ("system", f"You are a FAQ assistant for {customer_label}. Answer the user's question using ONLY the provided FAQ context below. Answer concisely and factually."),
+            ("human", f"Question: {question}\n\nFAQ Context:\n{combined_context}"),
+        ]
+        yield from stream_llm_response(
+            self._llm, messages,
+            metadata={"chunksUsed": len(docs), "strategy": "chroma-direct+langchain-llm", "orchestrationStrategy": "langchain-agent"},
+        )
 
 
 pipeline = AgenticPipeline()

@@ -35,10 +35,13 @@ import io.github.resilience4j.retry.annotation.Retry;
 import io.github.resilience4j.bulkhead.annotation.Bulkhead;
 import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.web.reactive.function.client.WebClient;
+
+import reactor.core.publisher.Flux;
 
 @Service
 public class RetrievalPipelineService {
@@ -390,6 +393,44 @@ public class RetrievalPipelineService {
 
         String response = chatClient.prompt().user(prompt).call().content();
         return response == null ? "No answer generated." : response;
+    }
+
+    public Flux<ServerSentEvent<String>> queryStream(String question, String tenantId) {
+        String collectionName = collectionPrefix + tenantId;
+        String collectionId = resolveCollectionId(collectionName);
+        if (collectionId == null) {
+            return Flux.just(
+                ServerSentEvent.<String>builder().event("meta").data("{\"chunksUsed\":0,\"strategy\":\"query-transform+hybrid-retrieval+rerank+grounded-generation\"}").build(),
+                ServerSentEvent.<String>builder().event("token").data("No relevant information found for this tenant knowledge base.").build(),
+                ServerSentEvent.<String>builder().event("done").data("").build()
+            );
+        }
+        String transformedQuery = transformQuery(question);
+        float[] embedding = embeddingModel.embed(transformedQuery);
+        List<Float> embeddingList = new ArrayList<>();
+        for (float f : embedding) embeddingList.add(f);
+        List<ChunkCandidate> reranked = hybridRetrieveAndRerank(collectionId, transformedQuery, embeddingList, defaultTopK);
+        if (reranked.isEmpty()) {
+            return Flux.just(
+                ServerSentEvent.<String>builder().event("meta").data("{\"chunksUsed\":0,\"strategy\":\"query-transform+hybrid-retrieval+rerank+grounded-generation\"}").build(),
+                ServerSentEvent.<String>builder().event("token").data("No relevant information found for this tenant knowledge base.").build(),
+                ServerSentEvent.<String>builder().event("done").data("").build()
+            );
+        }
+        StringBuilder context = new StringBuilder();
+        for (ChunkCandidate chunk : reranked) {
+            String src = chunk.source == null ? "unknown-source" : chunk.source;
+            context.append("[").append(chunk.rank).append("] (").append(src).append(") ").append(chunk.content).append("\n\n");
+        }
+        String prompt = "You are a FAQ assistant. Answer the user's question using ONLY the provided FAQ context below. "
+            + "Answer concisely and factually.\n\nQuestion: " + question + "\n\nContext:\n" + context;
+
+        String metaJson = "{\"chunksUsed\":" + reranked.size() + ",\"strategy\":\"query-transform+hybrid-retrieval+rerank+grounded-generation\"}";
+        ServerSentEvent<String> metaEvent = ServerSentEvent.<String>builder().event("meta").data(metaJson).build();
+        ServerSentEvent<String> doneEvent = ServerSentEvent.<String>builder().event("done").data("").build();
+        Flux<ServerSentEvent<String>> tokens = chatClient.prompt().user(prompt).stream().content()
+            .map(chunk -> ServerSentEvent.<String>builder().event("token").data(chunk).build());
+        return Flux.concat(Flux.just(metaEvent), tokens, Flux.just(doneEvent));
     }
 
     private String resolveCollectionId(String collectionName) {

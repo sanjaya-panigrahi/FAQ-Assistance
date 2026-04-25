@@ -6,11 +6,14 @@ from langchain_chroma import Chroma
 from langchain_openai import ChatOpenAI
 from langchain_community.graphs import Neo4jGraph
 
+from collections.abc import Generator
+
 from ..analytics_client import post_analytics_event
 from ..cached_embeddings import CachedOpenAIEmbeddings
 from ..config import settings
 from ..faq_parser import parse_faq_documents
 from ..schemas import GraphRagResponse as RagResponse
+from ..streaming import stream_llm_response
 
 
 NO_CONTEXT_ANSWER = (
@@ -150,6 +153,44 @@ class GraphPipeline:
             context_docs=f"{vector_context}\n\n{graph_context}".strip(),
         )
         return response
+
+    def ask_stream(self, question: str, customer_id: str | None = None) -> Generator[str, None, None]:
+        tenant = (customer_id or "default").strip()
+        collection = f"{settings.chroma_collection_prefix}{tenant}"
+        vector_store = Chroma(
+            client=self._chroma_client,
+            collection_name=collection,
+            embedding_function=self._embeddings,
+        )
+        vector_docs = vector_store.similarity_search(question, k=6)
+        vector_context = "\n\n".join(doc.page_content for doc in vector_docs)
+
+        graph_client = self._get_graph_client()
+        try:
+            rows = graph_client.query(
+                "CALL db.index.fulltext.queryNodes('faq_fulltext', $q) YIELD node, score "
+                "RETURN node.question AS question, node.answer AS answer, score "
+                "ORDER BY score DESC LIMIT 4",
+                {"q": question},
+            ) if graph_client else []
+        except Exception:
+            rows = []
+        graph_context = "\n\n".join(f"Q: {row['question']}\nA: {row['answer']}" for row in rows)
+
+        if not vector_docs and not rows:
+            from ..streaming import sse_event
+            yield sse_event("meta", {"graphFacts": 0, "strategy": "chroma-direct+fallback-no-context", "orchestrationStrategy": "langchain-graph-prototype"})
+            yield sse_event("done", {"answer": NO_CONTEXT_ANSWER})
+            return
+
+        from langchain_core.messages import SystemMessage, HumanMessage
+        system_prompt = "You are a FAQ assistant. Answer the user's question using ONLY the provided FAQ context below. Answer concisely and factually."
+        user_prompt = f"Question: {question}\n\nFAQ Vector Context:\n{vector_context or 'None'}\n\nFAQ Graph Context:\n{graph_context or 'None'}"
+        messages = [("system", system_prompt), ("human", user_prompt)]
+        yield from stream_llm_response(
+            self._get_llm(), messages,
+            metadata={"graphFacts": len(rows), "strategy": "chroma-direct+neo4j-graph", "orchestrationStrategy": "langchain-graph-prototype"},
+        )
 
 
 pipeline = GraphPipeline()

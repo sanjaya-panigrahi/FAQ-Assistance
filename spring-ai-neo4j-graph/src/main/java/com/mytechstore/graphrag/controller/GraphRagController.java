@@ -12,7 +12,9 @@ import com.mytechstore.graphrag.service.GraphPipelineService;
 import com.mytechstore.graphrag.service.TaskService;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -24,6 +26,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import jakarta.validation.Valid;
+import reactor.core.publisher.Flux;
 
 @Validated
 @RestController
@@ -73,5 +76,10 @@ public class GraphRagController {
     @PostMapping("/query/ask")
     public ResponseEntity<RagResponse> ask(@Valid @RequestBody RagRequest request) {
         return ResponseEntity.ok(pipelineService.ask(request.question(), request.customerId()));
+    }
+
+    @PostMapping(value = "/query/ask-stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Flux<ServerSentEvent<String>> askStream(@Valid @RequestBody RagRequest request) {
+        return pipelineService.askStream(request.question(), request.customerId());
     }
 }

@@ -1,6 +1,7 @@
 import re
 import time
 import json
+from collections.abc import Generator
 from typing import TypedDict
 
 import chromadb
@@ -14,6 +15,7 @@ from ..analytics_client import post_analytics_event
 from ..cached_embeddings import CachedOpenAIEmbeddings
 from ..config import settings
 from ..schemas import RetrievedChunk, RetrievalQueryRequest, RetrievalQueryResponse
+from ..streaming import stream_llm_response, sse_event
 
 
 class RetrievalState(TypedDict, total=False):
@@ -249,6 +251,42 @@ class RetrievalPipeline:
             return 0.0
         overlap = query_tokens.intersection(chunk_tokens)
         return len(overlap) / len(query_tokens)
+
+    def query_stream(self, request: RetrievalQueryRequest) -> Generator[str, None, None]:
+        transformed_query = self._transform_query(request.question, request.queryContext)
+        ranked_chunks = self._retrieve_and_rerank(
+            transformed_query=transformed_query,
+            tenant_id=request.tenantId,
+            top_k=request.topK,
+            similarity_threshold=request.similarityThreshold,
+        )
+        response_chunks = [
+            {"rank": i + 1, "source": c["source"], "chunkNumber": c["chunk_number"], "score": round(c["rerank_score"], 4), "excerpt": c["content"]}
+            for i, c in enumerate(ranked_chunks)
+        ]
+        if not ranked_chunks:
+            yield sse_event("meta", {
+                "tenantId": request.tenantId, "question": request.question,
+                "transformedQuery": transformed_query, "strategy": "query-transform+hybrid-retrieval+rerank+grounded-generation(langgraph)",
+                "chunksUsed": 0, "grounded": False, "chunks": [],
+            })
+            yield sse_event("done", {"answer": "I could not find grounded FAQ evidence for that question."})
+            return
+        context_lines = [f"[{i + 1}] ({c['source']}) {c['content']}" for i, c in enumerate(ranked_chunks)]
+        context = "\n\n".join(context_lines)
+        customer_label = (request.tenantId or "the company").strip()
+        messages = [
+            ("system", f"You are a FAQ assistant for {customer_label}. Answer the user's question using ONLY the provided FAQ context below. Answer concisely and factually."),
+            ("human", f"Question: {request.question}\n\nContext:\n{context}"),
+        ]
+        yield from stream_llm_response(
+            self._llm, messages,
+            metadata={
+                "tenantId": request.tenantId, "question": request.question,
+                "transformedQuery": transformed_query, "strategy": "query-transform+hybrid-retrieval+rerank+grounded-generation(langgraph)",
+                "chunksUsed": len(response_chunks), "grounded": True, "chunks": response_chunks,
+            },
+        )
 
 
 pipeline = RetrievalPipeline()

@@ -1,5 +1,6 @@
 import json
 import time
+from collections.abc import Generator
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
@@ -10,6 +11,7 @@ from ..analytics_client import post_analytics_event
 from ..cached_embeddings import CachedOpenAIEmbeddings
 from ..config import settings
 from ..schemas import RagResponse
+from ..streaming import stream_llm_response, sse_event
 
 
 class AgenticPipeline:
@@ -103,6 +105,35 @@ class AgenticPipeline:
             context_docs=context,
         )
         return response
+
+    def ask_stream(self, question: str, customer_id: str | None = None) -> Generator[str, None, None]:
+        tenant = (customer_id or "default").strip()
+        collection = f"{settings.chroma_collection_prefix}{tenant}"
+        collection_payload = self._get_collection(collection)
+        if not collection_payload:
+            yield sse_event("meta", {"chunksUsed": 0, "strategy": "chroma-v2-rest+langgraph-routing", "orchestrationStrategy": "langgraph-multistep-routing"})
+            yield sse_event("done", {"answer": "I could not find grounded FAQ evidence for that customer."})
+            return
+        collection_id = str(collection_payload.get("id") or "").strip()
+        if not collection_id:
+            raise RuntimeError(f"Collection id missing for {collection}")
+        query_embedding = self._embeddings.embed_query(question)
+        query_payload = self._query_collection(collection_id=collection_id, query_embedding=query_embedding, top_k=6)
+        docs = self._extract_documents(query_payload)
+        context = "\n\n".join(doc["content"] for doc in docs)
+        if not context:
+            yield sse_event("meta", {"chunksUsed": 0, "strategy": "chroma-v2-rest+langgraph-routing", "orchestrationStrategy": "langgraph-multistep-routing"})
+            yield sse_event("done", {"answer": "I could not find grounded FAQ evidence for that question. Please refine the question or ingest more tenant data."})
+            return
+        customer_label = (tenant or "the company").strip()
+        messages = [
+            ("system", f"You are a FAQ assistant for {customer_label}. Answer the user's question using ONLY the provided FAQ context below. Answer concisely and factually."),
+            ("human", f"Question: {question}\n\nFAQ Context:\n{context}"),
+        ]
+        yield from stream_llm_response(
+            self._llm, messages,
+            metadata={"chunksUsed": len(docs), "strategy": "chroma-v2-rest+langgraph-routing", "orchestrationStrategy": "langgraph-multistep-routing"},
+        )
 
     def _chroma_base(self) -> str:
         return (

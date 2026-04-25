@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import StreamingResponse
 
 from ..pipelines.corrective import CorrectivePipeline
 from ..security import TokenPayload, get_current_user, get_current_user_optional
@@ -38,3 +39,18 @@ async def ask(request: RagRequest, current_user: TokenPayload | None = Depends(g
         return await run_in_threadpool(pipeline.ask, question, customer_id=customer_id)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/api/query/ask-stream")
+async def ask_stream(request: RagRequest, current_user: TokenPayload | None = Depends(get_current_user_optional)):
+    question = request.question.strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="question is required")
+    customer_id = request.customerId or (current_user.tenant_id if current_user else None)
+    if not customer_id:
+        raise HTTPException(status_code=400, detail="customerId is required")
+    return StreamingResponse(
+        pipeline.ask_stream(question, customer_id=customer_id),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

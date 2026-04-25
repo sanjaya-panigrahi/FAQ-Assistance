@@ -8,7 +8,9 @@ import com.mytechstore.vision.dto.VisionRagResponse;
 import com.mytechstore.vision.service.OpenAiVisionExtractor;
 import com.mytechstore.vision.service.VisionPipelineService;
 
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -21,6 +23,7 @@ import org.springframework.web.server.ResponseStatusException;
 import org.springframework.http.HttpStatus;
 
 import jakarta.validation.Valid;
+import reactor.core.publisher.Flux;
 
 @Validated
 @RestController
@@ -48,6 +51,11 @@ public class VisionRagController {
     public ResponseEntity<VisionRagResponse> ask(@Valid @RequestBody VisionRagRequest request) {
         return ResponseEntity.ok(
                 pipelineService.ask(request.question(), request.imageDescription(), request.customerId()));
+    }
+
+    @PostMapping(value = "/query/ask-stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Flux<ServerSentEvent<String>> askStream(@Valid @RequestBody VisionRagRequest request) {
+        return pipelineService.askStream(request.question(), request.imageDescription(), request.customerId());
     }
 
     @PostMapping(value = "/query/ask-with-image", consumes = {"multipart/form-data"})

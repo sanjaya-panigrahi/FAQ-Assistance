@@ -5,10 +5,13 @@ import chromadb
 from langchain_chroma import Chroma
 from langchain_openai import ChatOpenAI
 
+from collections.abc import Generator
+
 from ..analytics_client import post_analytics_event
 from ..cached_embeddings import CachedOpenAIEmbeddings
 from ..config import settings
 from ..schemas import VisionRagResponse
+from ..streaming import stream_llm_response
 
 
 NO_CONTEXT_ANSWER = (
@@ -90,6 +93,31 @@ class MultimodalPipeline:
             context_docs=context,
         )
         return response
+
+    def ask_stream(self, question: str, image_description: str, customer_id: str | None = None) -> Generator[str, None, None]:
+        tenant = (customer_id or "default").strip()
+        collection = f"{settings.chroma_collection_prefix}{tenant}"
+        vector_store = Chroma(
+            client=self._chroma_client,
+            collection_name=collection,
+            embedding_function=self._embeddings,
+        )
+        query = f"{question} {image_description}".strip() if image_description else question
+        docs = vector_store.similarity_search(query, k=6)
+        if not docs:
+            from ..streaming import sse_event
+            yield sse_event("meta", {"chunksUsed": 0, "strategy": "chroma-direct+fallback-no-context", "orchestrationStrategy": "langchain-multimodal-quickstart"})
+            yield sse_event("done", {"answer": NO_CONTEXT_ANSWER})
+            return
+        context = "\n\n".join(doc.page_content for doc in docs)
+        messages = [
+            ("system", "You are a FAQ assistant. Answer the user's question using ONLY the provided FAQ context below. Answer concisely and factually."),
+            ("human", f"Question: {question}\n\nFAQ Context:\n{context}"),
+        ]
+        yield from stream_llm_response(
+            self._llm, messages,
+            metadata={"chunksUsed": len(docs), "strategy": "chroma-direct+multimodal-context", "orchestrationStrategy": "langchain-multimodal-quickstart"},
+        )
 
 
 pipeline = MultimodalPipeline()

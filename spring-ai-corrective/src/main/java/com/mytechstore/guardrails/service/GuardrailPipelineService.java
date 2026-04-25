@@ -27,8 +27,11 @@ import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+
+import reactor.core.publisher.Flux;
 
 @Service
 public class GuardrailPipelineService {
@@ -121,6 +124,47 @@ public class GuardrailPipelineService {
         analyticsReporter.postEvent(question, answer, customerId != null ? customerId : "default",
                 "corrective", "chroma-direct+corrective-guardrails", 0, context);
         return response;
+    }
+
+    public Flux<ServerSentEvent<String>> askStream(String question, String customerId) {
+        List<String> chromaChunks = queryChroma(customerId, question, defaultTopK);
+        String context;
+        int chunksUsed;
+        if (!chromaChunks.isEmpty()) {
+            context = String.join("\n\n", chromaChunks);
+            chunksUsed = chromaChunks.size();
+        } else {
+            if (!indexed.get()) { rebuildIndex(); }
+            List<Document> hits = retrieveRelevantDocuments(question, defaultTopK);
+            if (hits.isEmpty()) {
+                return Flux.just(
+                    ServerSentEvent.<String>builder().event("meta").data("{\"chunksUsed\":0,\"strategy\":\"springai-advisors-guardrails-local\",\"orchestrationStrategy\":\"springai-advisors-guardrails\"}").build(),
+                    ServerSentEvent.<String>builder().event("token").data("I do not have enough FAQ context to answer this safely.").build(),
+                    ServerSentEvent.<String>builder().event("done").data("").build()
+                );
+            }
+            context = hits.stream().map(Document::getText).collect(Collectors.joining("\n\n"));
+            chunksUsed = hits.size();
+        }
+        if (context.isBlank()) {
+            return Flux.just(
+                ServerSentEvent.<String>builder().event("meta").data("{\"chunksUsed\":0,\"strategy\":\"springai-advisors-guardrails-local\",\"orchestrationStrategy\":\"springai-advisors-guardrails\"}").build(),
+                ServerSentEvent.<String>builder().event("token").data("I do not have enough FAQ context to answer this safely.").build(),
+                ServerSentEvent.<String>builder().event("done").data("").build()
+            );
+        }
+        String customerLabel = (customerId != null && !customerId.isBlank()) ? customerId.trim() : "the company";
+        String prompt = "You are a FAQ assistant for " + customerLabel + ". "
+            + "Answer the user's question using ONLY the provided FAQ context below. "
+            + "Answer concisely and factually.\n\n"
+            + "Context:\n" + context + "\n\nQuestion: " + question;
+
+        String metaJson = "{\"chunksUsed\":" + chunksUsed + ",\"strategy\":\"chroma-direct+corrective-guardrails\",\"orchestrationStrategy\":\"springai-advisors-guardrails\"}";
+        ServerSentEvent<String> metaEvent = ServerSentEvent.<String>builder().event("meta").data(metaJson).build();
+        ServerSentEvent<String> doneEvent = ServerSentEvent.<String>builder().event("done").data("").build();
+        Flux<ServerSentEvent<String>> tokens = chatClient.prompt().user(prompt).stream().content()
+            .map(chunk -> ServerSentEvent.<String>builder().event("token").data(chunk).build());
+        return Flux.concat(Flux.just(metaEvent), tokens, Flux.just(doneEvent));
     }
 
     private List<String> queryChroma(String customerId, String question, int topK) {
