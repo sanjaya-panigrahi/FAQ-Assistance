@@ -17,6 +17,8 @@ import java.util.stream.Collectors;
 import com.mytechstore.unified.dto.CorrectiveRagResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
@@ -27,17 +29,26 @@ import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClient;
 
 import reactor.core.publisher.Flux;
 
 @Service
 public class GuardrailPipelineService {
 
+    private static final Logger log = LoggerFactory.getLogger(GuardrailPipelineService.class);
+
     private static final Set<String> STOP_WORDS = Set.of(
             "a", "an", "and", "are", "at", "be", "by", "can", "do", "for", "from", "how", "i", "if",
             "in", "is", "it", "me", "my", "of", "on", "or", "the", "to", "we", "what", "when", "where",
             "which", "with", "you", "your"
     );
+
+    private static final String GRADING_PROMPT =
+            "You are a relevance grader. Given a user question and a retrieved FAQ document, " +
+            "determine if the document contains information relevant to answering the question.\n" +
+            "Respond with ONLY one word: RELEVANT or IRRELEVANT.\n\n" +
+            "Question: %s\n\nDocument:\n%s";
 
     private final VectorStore vectorStore;
     private final ChatClient chatClient;
@@ -49,14 +60,20 @@ public class GuardrailPipelineService {
     private final int defaultTopK;
     private final AnalyticsReporter analyticsReporter;
     private final ChromaQueryService chromaQueryService;
+    private final String tavilyApiKey;
+    private final String tavilyUrl;
+    private final WebClient webClient;
 
     public GuardrailPipelineService(VectorStore vectorStore,
                                     ChatClient chatClient,
                                     @Value("${faq.source-file}") String sourceFile,
                                     EmbeddingModel embeddingModel,
                                     @Value("${retrieval.top-k:6}") int defaultTopK,
-                                AnalyticsReporter analyticsReporter,
-                                ChromaQueryService chromaQueryService) {
+                                    AnalyticsReporter analyticsReporter,
+                                    ChromaQueryService chromaQueryService,
+                                    @Value("${tavily.api-key:}") String tavilyApiKey,
+                                    @Value("${tavily.url:https://api.tavily.com/search}") String tavilyUrl,
+                                    WebClient webClient) {
         this.vectorStore = vectorStore;
         this.chatClient = chatClient;
         this.sourceFile = sourceFile;
@@ -64,6 +81,9 @@ public class GuardrailPipelineService {
         this.defaultTopK = defaultTopK;
         this.analyticsReporter = analyticsReporter;
         this.chromaQueryService = chromaQueryService;
+        this.tavilyApiKey = tavilyApiKey;
+        this.tavilyUrl = tavilyUrl;
+        this.webClient = webClient;
     }
 
     @CacheEvict(value = "guardrailAnswers", allEntries = true)
@@ -77,6 +97,7 @@ public class GuardrailPipelineService {
 
     @Cacheable(value = "guardrailAnswers", key = "(#customerId == null ? 'default' : #customerId) + ':' + #question")
     public CorrectiveRagResponse ask(String question, String customerId) {
+        long t0 = System.currentTimeMillis();
         List<String> chromaChunks = chromaQueryService.query(customerId, question, defaultTopK);
         String context;
         int chunksUsed;
@@ -90,8 +111,8 @@ public class GuardrailPipelineService {
             List<Document> hits = retrieveRelevantDocuments(question, defaultTopK);
             if (hits.isEmpty()) {
                 return new CorrectiveRagResponse("I do not have enough FAQ context to answer this safely.", false,
-                        "low-retrieval-confidence", 0, "springai-advisors-guardrails-local",
-                        "springai-advisors-guardrails");
+                        "low-retrieval-confidence", 0, "crag+no-retrieval",
+                        "springai-crag");
             }
             context = hits.stream().map(Document::getText).collect(Collectors.joining("\n\n"));
             chunksUsed = hits.size();
@@ -99,22 +120,111 @@ public class GuardrailPipelineService {
 
         if (context.isBlank()) {
             return new CorrectiveRagResponse("I do not have enough FAQ context to answer this safely.", false,
-                    "low-retrieval-confidence", 0, "springai-advisors-guardrails-local",
-                    "springai-advisors-guardrails");
+                    "low-retrieval-confidence", 0, "crag+no-retrieval",
+                    "springai-crag");
+        }
+
+        // --- CRAG: LLM-based relevance grading ---
+        String[] chunks = context.split("\n\n");
+        List<String> relevantChunks = new ArrayList<>();
+        int totalChunks = chunks.length;
+        for (String chunk : chunks) {
+            if (chunk.isBlank()) continue;
+            String gradingPrompt = String.format(GRADING_PROMPT, question, chunk);
+            try {
+                String grade = chatClient.prompt().user(gradingPrompt).call().content().trim().toUpperCase();
+                if (grade.contains("RELEVANT") && !grade.contains("IRRELEVANT")) {
+                    relevantChunks.add(chunk);
+                }
+            } catch (Exception e) {
+                relevantChunks.add(chunk); // on error, keep the chunk
+            }
+        }
+
+        double relevanceRatio = totalChunks > 0 ? (double) relevantChunks.size() / totalChunks : 0.0;
+
+        // --- CRAG: Web search fallback for low/ambiguous relevance ---
+        String webContext = "";
+        String strategy;
+        if (relevanceRatio < 0.5) {
+            webContext = webSearchFallback(question);
+            strategy = !webContext.isEmpty() ? "crag+web-search-fallback" : "crag+low-relevance";
+        } else if (relevanceRatio < 1.0) {
+            webContext = webSearchFallback(question);
+            strategy = !webContext.isEmpty() ? "crag+ambiguous-supplemented" : "crag+ambiguous-local";
+        } else {
+            strategy = "crag+all-relevant";
+        }
+
+        // Build final context
+        StringBuilder finalContext = new StringBuilder(String.join("\n\n", relevantChunks));
+        if (!webContext.isEmpty()) {
+            finalContext.append("\n\n--- Web Search Results ---\n").append(webContext);
+        }
+
+        if (finalContext.toString().isBlank()) {
+            return new CorrectiveRagResponse("I do not have enough FAQ context to answer this safely.", false,
+                    "low-retrieval-confidence", 0, "crag+empty-after-grading",
+                    "springai-crag");
         }
 
         String customerLabel = (customerId != null && !customerId.isBlank()) ? customerId.trim() : "the company";
         String prompt = "You are a FAQ assistant for " + customerLabel + ". "
-            + "Answer the user's question using ONLY the provided FAQ context below. "
+            + "Answer the user's question using ONLY the provided context below. "
+            + "If web search results are included, prefer local FAQ context but use web results to supplement. "
             + "Answer concisely and factually.\n\n"
-                + "Context:\n" + context + "\n\nQuestion: " + question;
+                + "Context:\n" + finalContext + "\n\nQuestion: " + question;
         String answer = chatClient.prompt().user(prompt).call().content();
 
-        CorrectiveRagResponse response = new CorrectiveRagResponse(answer, false, "ok", chunksUsed, "chroma-direct+corrective-guardrails",
-                "springai-advisors-guardrails");
+        long latencyMs = System.currentTimeMillis() - t0;
+        CorrectiveRagResponse response = new CorrectiveRagResponse(answer, false, "ok", relevantChunks.size(), strategy,
+                "springai-crag");
         analyticsReporter.postEvent(question, answer, customerId != null ? customerId : "default",
-                "corrective", "chroma-direct+corrective-guardrails", 0, context);
+                "corrective", strategy, latencyMs, finalContext.toString());
         return response;
+    }
+
+    private String webSearchFallback(String question) {
+        if (tavilyApiKey == null || tavilyApiKey.isBlank()) {
+            log.debug("TAVILY_API_KEY not set — skipping web search fallback");
+            return "";
+        }
+        try {
+            Map<String, Object> body = Map.of(
+                "api_key", tavilyApiKey,
+                "query", question,
+                "max_results", 3,
+                "search_depth", "basic",
+                "include_answer", true
+            );
+            @SuppressWarnings("unchecked")
+            Map<String, Object> result = webClient.post()
+                .uri(tavilyUrl)
+                .bodyValue(body)
+                .retrieve()
+                .bodyToMono(Map.class)
+                .block(java.time.Duration.ofSeconds(10));
+            if (result == null) return "";
+
+            StringBuilder sb = new StringBuilder();
+            Object answerObj = result.get("answer");
+            if (answerObj != null && !answerObj.toString().isBlank()) {
+                sb.append("Web Summary: ").append(answerObj).append("\n\n");
+            }
+            Object resultsObj = result.get("results");
+            if (resultsObj instanceof List<?> resultsList) {
+                for (int i = 0; i < Math.min(3, resultsList.size()); i++) {
+                    if (resultsList.get(i) instanceof Map<?, ?> r) {
+                        sb.append("Source: ").append(r.getOrDefault("title", "")).append("\n")
+                          .append(r.getOrDefault("content", "")).append("\n\n");
+                    }
+                }
+            }
+            return sb.toString().trim();
+        } catch (Exception e) {
+            log.warn("Tavily web search failed: {}", e.getMessage());
+            return "";
+        }
     }
 
     public Flux<ServerSentEvent<String>> askStream(String question, String customerId) {
@@ -129,7 +239,7 @@ public class GuardrailPipelineService {
             List<Document> hits = retrieveRelevantDocuments(question, defaultTopK);
             if (hits.isEmpty()) {
                 return Flux.just(
-                    ServerSentEvent.<String>builder().event("meta").data("{\"chunksUsed\":0,\"strategy\":\"springai-advisors-guardrails-local\",\"orchestrationStrategy\":\"springai-advisors-guardrails\"}").build(),
+                    ServerSentEvent.<String>builder().event("meta").data("{\"chunksUsed\":0,\"strategy\":\"crag+no-retrieval\",\"orchestrationStrategy\":\"springai-crag\"}").build(),
                     ServerSentEvent.<String>builder().event("token").data("I do not have enough FAQ context to answer this safely.").build(),
                     ServerSentEvent.<String>builder().event("done").data("").build()
                 );
@@ -139,18 +249,46 @@ public class GuardrailPipelineService {
         }
         if (context.isBlank()) {
             return Flux.just(
-                ServerSentEvent.<String>builder().event("meta").data("{\"chunksUsed\":0,\"strategy\":\"springai-advisors-guardrails-local\",\"orchestrationStrategy\":\"springai-advisors-guardrails\"}").build(),
+                ServerSentEvent.<String>builder().event("meta").data("{\"chunksUsed\":0,\"strategy\":\"crag+no-retrieval\",\"orchestrationStrategy\":\"springai-crag\"}").build(),
                 ServerSentEvent.<String>builder().event("token").data("I do not have enough FAQ context to answer this safely.").build(),
                 ServerSentEvent.<String>builder().event("done").data("").build()
             );
         }
+
+        // CRAG grading for streaming
+        String[] chunks = context.split("\n\n");
+        List<String> relevantChunks = new ArrayList<>();
+        for (String chunk : chunks) {
+            if (chunk.isBlank()) continue;
+            String gradingPrompt = String.format(GRADING_PROMPT, question, chunk);
+            try {
+                String grade = chatClient.prompt().user(gradingPrompt).call().content().trim().toUpperCase();
+                if (grade.contains("RELEVANT") && !grade.contains("IRRELEVANT")) {
+                    relevantChunks.add(chunk);
+                }
+            } catch (Exception e) {
+                relevantChunks.add(chunk);
+            }
+        }
+
+        double relevanceRatio = chunks.length > 0 ? (double) relevantChunks.size() / chunks.length : 0.0;
+        String webContext = relevanceRatio < 1.0 ? webSearchFallback(question) : "";
+        String strategy = relevanceRatio >= 1.0 ? "crag+all-relevant"
+            : (!webContext.isEmpty() ? "crag+web-supplemented" : "crag+local-only");
+
+        StringBuilder finalContext = new StringBuilder(String.join("\n\n", relevantChunks));
+        if (!webContext.isEmpty()) {
+            finalContext.append("\n\n--- Web Search Results ---\n").append(webContext);
+        }
+
         String customerLabel = (customerId != null && !customerId.isBlank()) ? customerId.trim() : "the company";
         String prompt = "You are a FAQ assistant for " + customerLabel + ". "
-            + "Answer the user's question using ONLY the provided FAQ context below. "
+            + "Answer the user's question using ONLY the provided context below. "
+            + "If web search results are included, prefer local FAQ context but use web results to supplement. "
             + "Answer concisely and factually.\n\n"
-            + "Context:\n" + context + "\n\nQuestion: " + question;
+            + "Context:\n" + finalContext + "\n\nQuestion: " + question;
 
-        String metaJson = "{\"chunksUsed\":" + chunksUsed + ",\"strategy\":\"chroma-direct+corrective-guardrails\",\"orchestrationStrategy\":\"springai-advisors-guardrails\"}";
+        String metaJson = "{\"chunksUsed\":" + relevantChunks.size() + ",\"strategy\":\"" + strategy + "\",\"orchestrationStrategy\":\"springai-crag\"}";
         ServerSentEvent<String> metaEvent = ServerSentEvent.<String>builder().event("meta").data(metaJson).build();
         ServerSentEvent<String> doneEvent = ServerSentEvent.<String>builder().event("done").data("").build();
         Flux<ServerSentEvent<String>> tokens = chatClient.prompt().user(prompt).stream().content()

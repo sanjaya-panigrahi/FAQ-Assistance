@@ -40,6 +40,10 @@ chroma:
 retrieval:
   top-k: ${APP_RAG_TOP_K_RESULTS:6}
 
+tavily:
+  api-key: ${TAVILY_API_KEY:}
+  url: ${TAVILY_SEARCH_URL:https://api.tavily.com/search}
+
 openai:
   vision:
     model: ${OPENAI_VISION_MODEL:gpt-4o-mini}

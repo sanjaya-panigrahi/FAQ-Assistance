@@ -11,6 +11,7 @@ from collections.abc import Generator
 from ..analytics_client import post_analytics_event
 from ..cached_embeddings import CachedOpenAIEmbeddings
 from ..config import settings
+from ..http_pool import get_chroma_client, get_embeddings, get_llm
 from ..faq_parser import parse_faq_documents
 from ..response_cache import response_cache
 from ..schemas import GraphRagResponse as RagResponse
@@ -27,8 +28,8 @@ class GraphPipeline:
     def __init__(self) -> None:
         self._graph_client = None
         self._llm = None
-        self._chroma_client = chromadb.HttpClient(host=settings.chroma_host, port=settings.chroma_port)
-        self._embeddings = CachedOpenAIEmbeddings(model=settings.openai_embedding_model)
+        self._chroma_client = get_chroma_client()
+        self._embeddings = get_embeddings()
         self._warmup()
 
     def _warmup(self) -> None:
@@ -65,7 +66,7 @@ class GraphPipeline:
 
     def _get_llm(self) -> ChatOpenAI:
         if self._llm is None:
-            self._llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
+            self._llm = get_llm()
         return self._llm
 
     def health(self) -> dict:
@@ -113,15 +114,22 @@ class GraphPipeline:
             rows = graph_client.query(
                 """
                 CALL db.index.fulltext.queryNodes('faq_fulltext', $q) YIELD node, score
-                RETURN node.question AS question, node.answer AS answer, score
-                ORDER BY score DESC
-                LIMIT 4
+                WITH node, score ORDER BY score DESC LIMIT 4
+                OPTIONAL MATCH (node)-[:RELATED_TO]-(related:FaqEntry)
+                RETURN node.question AS question, node.answer AS answer, score,
+                       collect(DISTINCT {q: related.question, a: related.answer})[..2] AS related
                 """,
                 {"q": question},
             ) if graph_client else []
         except Exception:
             rows = []
-        graph_context = "\n\n".join(f"Q: {row['question']}\nA: {row['answer']}" for row in rows)
+        graph_parts = []
+        for row in rows:
+            graph_parts.append(f"Q: {row['question']}\nA: {row['answer']}")
+            for rel in (row.get("related") or []):
+                if rel and rel.get("q"):
+                    graph_parts.append(f"[Related] Q: {rel['q']}\nA: {rel['a']}")
+        graph_context = "\n\n".join(graph_parts)
 
         if not vector_docs and not rows:
             return RagResponse(
@@ -176,13 +184,21 @@ class GraphPipeline:
         try:
             rows = graph_client.query(
                 "CALL db.index.fulltext.queryNodes('faq_fulltext', $q) YIELD node, score "
-                "RETURN node.question AS question, node.answer AS answer, score "
-                "ORDER BY score DESC LIMIT 4",
+                "WITH node, score ORDER BY score DESC LIMIT 4 "
+                "OPTIONAL MATCH (node)-[:RELATED_TO]-(related:FaqEntry) "
+                "RETURN node.question AS question, node.answer AS answer, score, "
+                "collect(DISTINCT {q: related.question, a: related.answer})[..2] AS related",
                 {"q": question},
             ) if graph_client else []
         except Exception:
             rows = []
-        graph_context = "\n\n".join(f"Q: {row['question']}\nA: {row['answer']}" for row in rows)
+        graph_parts = []
+        for row in rows:
+            graph_parts.append(f"Q: {row['question']}\nA: {row['answer']}")
+            for rel in (row.get("related") or []):
+                if rel and rel.get("q"):
+                    graph_parts.append(f"[Related] Q: {rel['q']}\nA: {rel['a']}")
+        graph_context = "\n\n".join(graph_parts)
 
         if not vector_docs and not rows:
             from ..streaming import sse_event

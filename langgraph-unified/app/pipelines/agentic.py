@@ -9,7 +9,9 @@ from langchain_openai import ChatOpenAI
 
 from ..analytics_client import post_analytics_event
 from ..cached_embeddings import CachedOpenAIEmbeddings
+from ..http_pool import get_chroma_client, get_embeddings, get_llm
 from ..config import settings
+from ..reranker import rerank_documents
 from ..response_cache import response_cache
 from ..schemas import RagResponse
 from ..streaming import stream_llm_response, sse_event
@@ -20,8 +22,8 @@ class AgenticPipeline:
     CHROMA_DATABASE = "default_database"
 
     def __init__(self) -> None:
-        self._embeddings = CachedOpenAIEmbeddings(model=settings.openai_embedding_model)
-        self._llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
+        self._embeddings = get_embeddings()
+        self._llm = get_llm()
         self._warmup()
 
     def _warmup(self) -> None:
@@ -71,6 +73,25 @@ class AgenticPipeline:
             top_k=6,
         )
         docs = self._extract_documents(query_payload)
+
+        # Rerank documents by LLM relevance scoring
+        if len(docs) > 1:
+            scored_docs = []
+            for doc in docs:
+                prompt = (
+                    f"Rate the relevance of this document to the question on a scale of 0-10. "
+                    f"Respond with ONLY a number.\n\nQuestion: {question}\n\nDocument:\n{doc['content'][:500]}"
+                )
+                try:
+                    result = self._llm.invoke(prompt).content.strip()
+                    score = float(result.split()[0])
+                    score = max(0, min(10, score))
+                except Exception:
+                    score = 5.0
+                scored_docs.append((doc, score))
+            scored_docs.sort(key=lambda x: x[1], reverse=True)
+            docs = [d for d, _ in scored_docs[:4]]
+
         context = "\n\n".join(doc["content"] for doc in docs)
 
         if not context:

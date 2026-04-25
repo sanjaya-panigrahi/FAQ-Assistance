@@ -101,17 +101,24 @@ public class StructuredPipelineService {
 
     @Cacheable(value = "hierarchicalAnswers", key = "(#customerId == null ? 'default' : #customerId) + ':' + #question")
     public HierarchicalRagResponse ask(String question, String customerId) {
-        List<String> chromaChunks = chromaQueryService.query(customerId, question, defaultTopK);
+        long t0 = System.currentTimeMillis();
+        // Phase 1: Broad retrieval (10 chunks)
+        List<String> chromaChunks = chromaQueryService.query(customerId, question, 10);
         String context;
         int chunksUsed;
+        String strategy;
         if (!chromaChunks.isEmpty()) {
-            context = String.join("\n\n", chromaChunks);
-            chunksUsed = chromaChunks.size();
+            // Phase 2: Group by first line, classify best section, rerank
+            List<String> focused = twoPhaseFilter(question, chromaChunks);
+            context = String.join("\n\n", focused);
+            chunksUsed = focused.size();
+            strategy = "hierarchical+2phase-chroma";
         } else {
             awaitIndexReady();
             List<Document> hits = retrieveRelevantDocuments(question, defaultTopK);
             context = hits.stream().map(Document::getText).collect(Collectors.joining("\n\n"));
             chunksUsed = hits.size();
+            strategy = "hierarchical+fallback-vectorstore";
         }
 
         String customerLabel = (customerId != null && !customerId.isBlank()) ? customerId.trim() : "the company";
@@ -120,26 +127,31 @@ public class StructuredPipelineService {
             + "Answer concisely and factually.\n\n"
                 + "Context:\n" + context + "\n\nQuestion: " + question;
         String answer = chatClient.prompt().user(prompt).call().content();
+        long latencyMs = System.currentTimeMillis() - t0;
 
-        HierarchicalRagResponse response = new HierarchicalRagResponse(answer, null, chunksUsed, "chroma-direct+hierarchical-section",
-                "structured-retriever-layer");
+        HierarchicalRagResponse response = new HierarchicalRagResponse(answer, null, chunksUsed, strategy,
+                "structured-retriever-2phase");
         analyticsReporter.postEvent(question, answer, customerId != null ? customerId : "default",
-                "hierarchical", "chroma-direct+hierarchical-section", 0, context);
+                "hierarchical", strategy, latencyMs, context);
         return response;
     }
 
     public Flux<ServerSentEvent<String>> askStream(String question, String customerId) {
-        List<String> chromaChunks = chromaQueryService.query(customerId, question, defaultTopK);
+        List<String> chromaChunks = chromaQueryService.query(customerId, question, 10);
         String context;
         int chunksUsed;
+        String strategy;
         if (!chromaChunks.isEmpty()) {
-            context = String.join("\n\n", chromaChunks);
-            chunksUsed = chromaChunks.size();
+            List<String> focused = twoPhaseFilter(question, chromaChunks);
+            context = String.join("\n\n", focused);
+            chunksUsed = focused.size();
+            strategy = "hierarchical+2phase-chroma";
         } else {
             awaitIndexReady();
             List<Document> hits = retrieveRelevantDocuments(question, defaultTopK);
             context = hits.stream().map(Document::getText).collect(Collectors.joining("\n\n"));
             chunksUsed = hits.size();
+            strategy = "hierarchical+fallback-vectorstore";
         }
         String customerLabel = (customerId != null && !customerId.isBlank()) ? customerId.trim() : "the company";
         String prompt = "You are a FAQ assistant for " + customerLabel + ". "
@@ -147,7 +159,7 @@ public class StructuredPipelineService {
             + "Answer concisely and factually.\n\n"
             + "Context:\n" + context + "\n\nQuestion: " + question;
 
-        String metaJson = "{\"chunksUsed\":" + chunksUsed + ",\"strategy\":\"chroma-direct+hierarchical-section\",\"orchestrationStrategy\":\"structured-retriever-layer\"}";
+        String metaJson = "{\"chunksUsed\":" + chunksUsed + ",\"strategy\":\"" + strategy + "\",\"orchestrationStrategy\":\"structured-retriever-2phase\"}";
         ServerSentEvent<String> metaEvent = ServerSentEvent.<String>builder().event("meta").data(metaJson).build();
         ServerSentEvent<String> doneEvent = ServerSentEvent.<String>builder().event("done").data("").build();
         Flux<ServerSentEvent<String>> tokens = chatClient.prompt().user(prompt).stream().content()
@@ -336,5 +348,78 @@ public class StructuredPipelineService {
 
     private String normalize(String value) {
         return value == null ? "" : value.toLowerCase().replaceAll("[^a-z0-9 ]", " ").replaceAll("\\s+", " ").trim();
+    }
+
+    /**
+     * Two-phase hierarchical filter: groups chunks by first-line topic,
+     * uses LLM to pick best section, then reranks within that section.
+     */
+    private List<String> twoPhaseFilter(String question, List<String> chunks) {
+        if (chunks.size() <= 4) return chunks;
+
+        // Group by first line as section proxy
+        LinkedHashMap<String, List<String>> sections = new LinkedHashMap<>();
+        for (int i = 0; i < chunks.size(); i++) {
+            String firstLine = chunks.get(i).split("\n")[0].trim();
+            String key = firstLine.length() > 80 ? firstLine.substring(0, 80) : firstLine;
+            if (key.isBlank()) key = "Section " + (i + 1);
+            sections.computeIfAbsent(key, k -> new ArrayList<>()).add(chunks.get(i));
+        }
+
+        if (sections.size() <= 1) {
+            // All in one section — just rerank
+            return rerankChunks(question, chunks, 4);
+        }
+
+        // LLM picks best section
+        List<String> sectionKeys = new ArrayList<>(sections.keySet());
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < sectionKeys.size(); i++) {
+            sb.append(i + 1).append(". ").append(sectionKeys.get(i))
+              .append(" (").append(sections.get(sectionKeys.get(i)).size()).append(" docs)\n");
+        }
+
+        String selectedKey;
+        try {
+            String result = chatClient.prompt().user(
+                "Which section is most relevant to the question? Respond with ONLY the number.\n\nQuestion: "
+                + question + "\n\nSections:\n" + sb).call().content().trim();
+            int idx = Math.max(0, Math.min(Integer.parseInt(result.split("\\s+")[0]) - 1, sectionKeys.size() - 1));
+            selectedKey = sectionKeys.get(idx);
+        } catch (Exception e) {
+            selectedKey = sectionKeys.get(0);
+        }
+
+        // Combine selected section + top 2 from others
+        List<String> candidates = new ArrayList<>(sections.get(selectedKey));
+        for (String key : sectionKeys) {
+            if (!key.equals(selectedKey)) {
+                List<String> others = sections.get(key);
+                candidates.addAll(others.subList(0, Math.min(2, others.size())));
+            }
+        }
+
+        return rerankChunks(question, candidates, 4);
+    }
+
+    private List<String> rerankChunks(String question, List<String> chunks, int topK) {
+        if (chunks.size() <= topK) return chunks;
+        record ScoredChunk(String text, double score) {}
+        List<ScoredChunk> scored = new ArrayList<>();
+        for (String chunk : chunks) {
+            String truncated = chunk.length() > 500 ? chunk.substring(0, 500) : chunk;
+            String prompt = "Rate the relevance of this document to the question on a scale of 0-10. "
+                + "Respond with ONLY a number.\n\nQuestion: " + question + "\n\nDocument:\n" + truncated;
+            try {
+                String result = chatClient.prompt().user(prompt).call().content().trim();
+                double score = Double.parseDouble(result.split("\\s+")[0]);
+                score = Math.max(0, Math.min(10, score));
+                scored.add(new ScoredChunk(chunk, score));
+            } catch (Exception e) {
+                scored.add(new ScoredChunk(chunk, 5.0));
+            }
+        }
+        scored.sort((a, b) -> Double.compare(b.score(), a.score()));
+        return scored.stream().limit(topK).map(ScoredChunk::text).toList();
     }
 }

@@ -127,12 +127,24 @@ public class GraphPipelineService {
                                                 "UNWIND $tokens AS token "
                                                                 + "MATCH (f:FaqChunk) "
                                                                 + "WHERE toLower(f.text) CONTAINS token "
-                                                                + "RETURN f.text AS text, count(*) AS score "
+                                                                + "WITH f, count(*) AS score "
                                                                 + "ORDER BY score DESC "
-                                                                + "LIMIT 3")
+                                                                + "LIMIT 3 "
+                                                                + "OPTIONAL MATCH (f)-[:RELATED_TO]-(related:FaqChunk) "
+                                                                + "RETURN f.text AS text, score, collect(DISTINCT related.text)[..2] AS relatedTexts")
                                 .bind(tokens.isEmpty() ? List.of(normalize(question)) : tokens).to("tokens")
                 .fetch().all().stream()
-                .map(row -> row.get("text").toString())
+                .flatMap(row -> {
+                    List<String> texts = new ArrayList<>();
+                    texts.add(row.get("text").toString());
+                    Object relatedObj = row.get("relatedTexts");
+                    if (relatedObj instanceof List<?> relatedList) {
+                        for (Object r : relatedList) {
+                            if (r != null) texts.add(r.toString());
+                        }
+                    }
+                    return texts.stream();
+                })
                                 .distinct()
                 .toList();
 
@@ -173,12 +185,24 @@ public class GraphPipelineService {
                 "UNWIND $tokens AS token "
                     + "MATCH (f:FaqChunk) "
                     + "WHERE toLower(f.text) CONTAINS token "
-                    + "RETURN f.text AS text, count(*) AS score "
+                    + "WITH f, count(*) AS score "
                     + "ORDER BY score DESC "
-                    + "LIMIT 3")
+                    + "LIMIT 3 "
+                    + "OPTIONAL MATCH (f)-[:RELATED_TO]-(related:FaqChunk) "
+                    + "RETURN f.text AS text, score, collect(DISTINCT related.text)[..2] AS relatedTexts")
             .bind(tokens.isEmpty() ? List.of(normalize(question)) : tokens).to("tokens")
             .fetch().all().stream()
-            .map(row -> row.get("text").toString())
+            .flatMap(row -> {
+                List<String> texts = new ArrayList<>();
+                texts.add(row.get("text").toString());
+                Object relatedObj = row.get("relatedTexts");
+                if (relatedObj instanceof List<?> relatedList) {
+                    for (Object r : relatedList) {
+                        if (r != null) texts.add(r.toString());
+                    }
+                }
+                return texts.stream();
+            })
             .distinct()
             .toList();
         String graphContext = String.join("\n", graphFacts);

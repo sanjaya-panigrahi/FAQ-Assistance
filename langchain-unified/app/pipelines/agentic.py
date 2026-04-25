@@ -9,7 +9,9 @@ from collections.abc import Generator
 
 from ..analytics_client import post_analytics_event
 from ..cached_embeddings import CachedOpenAIEmbeddings
+from ..http_pool import get_chroma_client, get_embeddings, get_llm
 from ..config import settings
+from ..reranker import rerank_documents
 from ..response_cache import response_cache
 from ..schemas import RagResponse
 from ..streaming import stream_llm_response
@@ -23,9 +25,9 @@ NO_CONTEXT_ANSWER = (
 
 class AgenticPipeline:
     def __init__(self) -> None:
-        self._chroma_client = chromadb.HttpClient(host=settings.chroma_host, port=settings.chroma_port)
-        self._embeddings = CachedOpenAIEmbeddings(model=settings.openai_embedding_model)
-        self._llm = ChatOpenAI(model=settings.openai_chat_model, temperature=0)
+        self._chroma_client = get_chroma_client()
+        self._embeddings = get_embeddings()
+        self._llm = get_llm()
         self._warmup()
 
     def _warmup(self) -> None:
@@ -71,6 +73,9 @@ class AgenticPipeline:
                 strategy="chroma-direct+fallback-no-context",
                 orchestrationStrategy="langchain-agent",
             )
+
+        # Rerank retrieved documents by LLM relevance scoring
+        docs = rerank_documents(self._llm, question, docs, top_k=4)
 
         combined_context = "\n\n".join(doc.page_content for doc in docs)
 

@@ -101,10 +101,40 @@ public class Neo4jGraphService {
             }
 
             log.info("Indexed {} FAQ entries in Neo4j for customer {}", entries.size(), customerId);
+
+            // Create RELATED_TO relationships between FAQ entries sharing keywords
+            createRelationships(session, customerId);
+
             return entries.size();
         } catch (Exception e) {
             log.error("Failed to index FAQ entries in Neo4j for customer {}: {}", customerId, e.getMessage());
             return 0;
+        }
+    }
+
+    /**
+     * Create RELATED_TO relationships between FaqEntry nodes that share significant keywords.
+     * Uses Neo4j's fulltext search to find pairs with overlapping content.
+     */
+    private void createRelationships(Session session, String customerId) {
+        try {
+            // Create relationships between FAQ entries sharing at least 3 common significant words
+            session.run(
+                "MATCH (a:FaqEntry {customer_id: $cid}), (b:FaqEntry {customer_id: $cid}) " +
+                "WHERE a.id < b.id " +
+                "WITH a, b, " +
+                "  [w IN split(toLower(a.question + ' ' + a.answer), ' ') " +
+                "   WHERE size(w) > 3 AND NOT w IN ['this','that','with','from','your','have','will','been','what','when','where','which','there','their','about','would','could','should','these','those','other','after','before'] | w] AS wordsA, " +
+                "  [w IN split(toLower(b.question + ' ' + b.answer), ' ') " +
+                "   WHERE size(w) > 3 AND NOT w IN ['this','that','with','from','your','have','will','been','what','when','where','which','there','their','about','would','could','should','these','those','other','after','before'] | w] AS wordsB " +
+                "WITH a, b, [w IN wordsA WHERE w IN wordsB] AS common " +
+                "WHERE size(common) >= 3 " +
+                "MERGE (a)-[:RELATED_TO {weight: size(common), keywords: common[..5]}]->(b)",
+                Map.of("cid", customerId)
+            );
+            log.info("Created RELATED_TO relationships for customer {}", customerId);
+        } catch (Exception e) {
+            log.warn("Failed to create graph relationships for {}: {}", customerId, e.getMessage());
         }
     }
 
