@@ -26,6 +26,13 @@ spring:
       enabled: true
       path: /h2-console
 
+  # Neo4j Driver (for Spring Boot health indicator)
+  neo4j:
+    uri: ${NEO4J_URI:bolt://localhost:7687}
+    authentication:
+      username: ${NEO4J_USERNAME:neo4j}
+      password: ${NEO4J_PASSWORD:neo4jpass}
+
   # Spring AI Configuration
   ai:
     openai:

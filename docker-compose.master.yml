@@ -220,7 +220,7 @@ services:
       chroma-faq:
         condition: service_healthy
       neo4j-unified:
-        condition: service_started
+        condition: service_healthy
       zipkin:
         condition: service_started
     volumes:
@@ -387,7 +387,9 @@ services:
     build:
       context: ./faq-assistance-ui
       args:
+        VITE_API_MODE: direct
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:9080}
+        VITE_INGESTION_API_URL: http://localhost:9020/api/faq-ingestion
     ports:
       - "5173:5173"
     depends_on:

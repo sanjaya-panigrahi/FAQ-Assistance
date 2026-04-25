@@ -13,9 +13,13 @@ RUN npm install --package-lock=false
 
 COPY . .
 
-# Optional build-time API gateway override.
+# Optional build-time overrides.
+ARG VITE_API_MODE=direct
 ARG VITE_API_BASE_URL=http://localhost:9080
+ARG VITE_INGESTION_API_URL=http://localhost:9020/api/faq-ingestion
+ENV VITE_API_MODE=${VITE_API_MODE}
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
+ENV VITE_INGESTION_API_URL=${VITE_INGESTION_API_URL}
 
 RUN npm run build
 RUN test -f /app/dist/index.html

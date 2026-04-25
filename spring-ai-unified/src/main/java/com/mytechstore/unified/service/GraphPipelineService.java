@@ -12,8 +12,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
-import java.time.Duration;
-import java.util.HashMap;
 
 import com.mytechstore.unified.dto.GraphRagResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -29,7 +27,6 @@ import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.neo4j.core.Neo4jClient;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
-import org.springframework.web.reactive.function.client.WebClient;
 
 import reactor.core.publisher.Flux;
 
@@ -51,33 +48,26 @@ public class GraphPipelineService {
         private volatile List<String> indexedVectorDocIds = List.of();
         private volatile String lastFaqDigest = "";
         private final EmbeddingModel embeddingModel;
-        private final String chromaUrl;
-        private final String collectionPrefix;
-        private final ObjectMapper objectMapper = new ObjectMapper();
-        private final WebClient webClient;
-        private final int defaultTopK;
+	private final ObjectMapper objectMapper = new ObjectMapper();
+	private final int defaultTopK;
     private final AnalyticsReporter analyticsReporter;
-
+    private final ChromaQueryService chromaQueryService;
     public GraphPipelineService(VectorStore vectorStore,
                                 Neo4jClient neo4jClient,
                                 ChatClient chatClient,
                                 @Value("${faq.source-file}") String sourceFile,
                                 EmbeddingModel embeddingModel,
-                                @Value("${chroma.url:http://chroma-faq:8000}") String chromaUrl,
-                                @Value("${chroma.collection-prefix:faq_}") String collectionPrefix,
                                 @Value("${retrieval.top-k:6}") int defaultTopK,
-                                WebClient webClient,
-                                AnalyticsReporter analyticsReporter) {
+                                AnalyticsReporter analyticsReporter,
+                                ChromaQueryService chromaQueryService) {
         this.vectorStore = vectorStore;
         this.neo4jClient = neo4jClient;
         this.chatClient = chatClient;
         this.sourceFile = sourceFile;
         this.embeddingModel = embeddingModel;
-        this.chromaUrl = chromaUrl;
-        this.collectionPrefix = collectionPrefix;
         this.defaultTopK = defaultTopK;
-        this.webClient = webClient;
         this.analyticsReporter = analyticsReporter;
+        this.chromaQueryService = chromaQueryService;
     }
 
     @CacheEvict(value = {"graphAnswers", "graphChroma"}, allEntries = true)
@@ -116,7 +106,7 @@ public class GraphPipelineService {
 
         @Cacheable(value = "graphAnswers", key = "#customerId + ':' + #question")
         public GraphRagResponse ask(String question, String customerId) {
-                List<String> chromaChunks = queryChroma(customerId, question, defaultTopK);
+                List<String> chromaChunks = chromaQueryService.query(customerId, question, defaultTopK);
                 String vectorContext;
                 int vectorCount;
                 if (!chromaChunks.isEmpty()) {
@@ -165,7 +155,7 @@ public class GraphPipelineService {
     }
 
     public Flux<ServerSentEvent<String>> askStream(String question, String customerId) {
-        List<String> chromaChunks = queryChroma(customerId, question, defaultTopK);
+        List<String> chromaChunks = chromaQueryService.query(customerId, question, defaultTopK);
         String vectorContext;
         int vectorCount;
         if (!chromaChunks.isEmpty()) {
@@ -206,56 +196,6 @@ public class GraphPipelineService {
             .map(chunk -> ServerSentEvent.<String>builder().event("token").data(chunk).build());
         return Flux.concat(Flux.just(metaEvent), tokenStream, Flux.just(doneEvent));
     }
-
-        private List<String> queryChroma(String customerId, String question, int topK) {
-                if (customerId == null || customerId.isBlank()) return List.of();
-                try {
-                        String collectionName = collectionPrefix + customerId.trim();
-            
-                        // Get collection ID
-                        String collectionResponse = webClient.get()
-                                        .uri(chromaUrl + "/api/v1/collections/" + collectionName)
-                                        .retrieve()
-                                        .bodyToMono(String.class)
-                                        .block(Duration.ofSeconds(5));
-            
-                        if (collectionResponse == null) return List.of();
-            
-                        @SuppressWarnings("unchecked")
-                        Map<String, Object> coll = objectMapper.readValue(collectionResponse, Map.class);
-                        String collectionId = String.valueOf(coll.get("id"));
-
-                        float[] embArr = embeddingModel.embed(question);
-                        List<Float> embedding = new ArrayList<>();
-                        for (float f : embArr) embedding.add(f);
-
-                        Map<String, Object> queryPayload = new HashMap<>();
-                        queryPayload.put("query_embeddings", List.of(embedding));
-                        queryPayload.put("n_results", topK);
-                        queryPayload.put("include", List.of("documents"));
-
-                        String queryResponse = webClient.post()
-                                        .uri(chromaUrl + "/api/v1/collections/" + collectionId + "/query")
-                                        .header("Content-Type", "application/json")
-                                        .bodyValue(queryPayload)
-                                        .retrieve()
-                                        .bodyToMono(String.class)
-                                        .block(Duration.ofSeconds(30));
-            
-                        if (queryResponse == null) return List.of();
-
-                        @SuppressWarnings("unchecked")
-                        Map<String, Object> result = objectMapper.readValue(queryResponse, Map.class);
-                        Object docsObj = result.get("documents");
-                        if (docsObj instanceof List<?> outer && !((List<?>) outer).isEmpty()
-                                        && outer.get(0) instanceof List<?> inner) {
-                                return inner.stream().filter(o -> o != null).map(Object::toString).toList();
-                        }
-                        return List.of();
-                } catch (Exception e) {
-                        return List.of();
-                }
-        }
 
         private List<Document> parseFaqDocuments() {
                 Path path = Path.of(sourceFile);
