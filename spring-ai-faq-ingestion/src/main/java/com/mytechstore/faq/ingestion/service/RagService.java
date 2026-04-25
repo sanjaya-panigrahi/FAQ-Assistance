@@ -47,6 +47,7 @@ import java.util.regex.Pattern;
 public class RagService {
 
     private final ChromaDBService chromadbService;
+    private final Neo4jGraphService neo4jGraphService;
     private final DocumentParserFactory parserFactory;
     private final CustomerRepository customerRepository;
     private final DocumentRepository documentRepository;
@@ -69,12 +70,14 @@ public class RagService {
 
     public RagService(
         ChromaDBService chromadbService,
+        Neo4jGraphService neo4jGraphService,
         DocumentParserFactory parserFactory,
         CustomerRepository customerRepository,
         DocumentRepository documentRepository,
         ChatClient.Builder chatClientBuilder
     ) {
         this.chromadbService = chromadbService;
+        this.neo4jGraphService = neo4jGraphService;
         this.parserFactory = parserFactory;
         this.customerRepository = customerRepository;
         this.documentRepository = documentRepository;
@@ -168,6 +171,16 @@ public class RagService {
             documentRepository.save(document);
 
             indexChunksInChromaDB(collectionName, chunks, customerId, document.getOriginalFileName());
+
+            // 8b. Index FAQ entries in Neo4j for Graph RAG
+            try {
+                int graphEntries = neo4jGraphService.indexFaqEntries(rawText, customerId);
+                if (graphEntries > 0) {
+                    log.info("Indexed {} FAQ entries in Neo4j graph for customer {}", graphEntries, customerId);
+                }
+            } catch (Exception e) {
+                log.warn("Neo4j graph indexing failed (non-fatal): {}", e.getMessage());
+            }
 
             // 9. Update document status
             document.setProcessingStatus(Document.ProcessingStatus.COMPLETED);

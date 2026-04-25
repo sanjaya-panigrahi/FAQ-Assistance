@@ -137,6 +137,7 @@ function App() {
   const presetImportInputRef = useRef(null);
   const documentPresetImportInputRef = useRef(null);
   const graphRebuildCacheRef = useRef(new Set());
+  const graphRebuildPromiseRef = useRef(new Map());
   const graphCustomerDataCacheRef = useRef(new Set());
   const graphWarmupPendingCountRef = useRef(0);
 
@@ -708,11 +709,28 @@ function App() {
     const normalizedCustomerId = customerId.trim();
     await ensureGraphCustomerHasData(normalizedCustomerId);
 
-    const cacheKey = `${frameworkValue}::${normalizedCustomerId}`;
+    // Neo4j index is shared across all frameworks — only rebuild once per customer
+    const cacheKey = `graph::${normalizedCustomerId}`;
     if (graphRebuildCacheRef.current.has(cacheKey)) {
       return;
     }
 
+    // If another framework is already rebuilding for this customer, wait for it
+    const pendingPromise = graphRebuildPromiseRef.current.get(cacheKey);
+    if (pendingPromise) {
+      return pendingPromise;
+    }
+
+    const rebuildPromise = _doGraphRebuild(frameworkValue, normalizedCustomerId, cacheKey);
+    graphRebuildPromiseRef.current.set(cacheKey, rebuildPromise);
+    try {
+      await rebuildPromise;
+    } finally {
+      graphRebuildPromiseRef.current.delete(cacheKey);
+    }
+  }
+
+  async function _doGraphRebuild(frameworkValue, normalizedCustomerId, cacheKey) {
     const graphBaseUrl = resolveUrl(frameworkValue, "graph");
     const abortController = new AbortController();
     const timeoutId = window.setTimeout(() => abortController.abort(), graphWarmupTimeoutMs);
@@ -1383,10 +1401,6 @@ function App() {
     const baseUrl = overrideUrl ?? resolveUrl(framework, service.id);
 
     try {
-      if (service.id === "graph") {
-        await ensureGraphIndexReady(framework, trimmedCustomerId);
-      }
-
       const isMultimodalUpload = service.id === "multimodal" && uploadedImage;
       let response;
 
@@ -1464,10 +1478,6 @@ function App() {
       compareFrameworks.map(async (fw) => {
         const startedAt = performance.now();
         try {
-          if (selectedService.id === "graph") {
-            await ensureGraphIndexReady(fw.value, trimmedCustomerId);
-          }
-
           const isMultimodalUpload = selectedService.id === "multimodal" && uploadedImage;
           let response;
 
@@ -1703,9 +1713,7 @@ function App() {
         if (detectedCustomerId) {
           setCustomer(detectedCustomerId);
           graphCustomerDataCacheRef.current.delete(detectedCustomerId);
-          frameworkOptions.forEach((option) => {
-            graphRebuildCacheRef.current.delete(`${option.value}::${detectedCustomerId}`);
-          });
+          graphRebuildCacheRef.current.delete(`graph::${detectedCustomerId}`);
         }
       } catch (requestError) {
         results.push({ file: file.name, status: "error", error: requestError.message });

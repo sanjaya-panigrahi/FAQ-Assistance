@@ -77,24 +77,15 @@ class GraphPipeline:
             return {"status": "DEGRADED", "backend": "chromadb+neo4j", "error": str(exc)}
 
     def rebuild_index(self) -> int:
-        rows = parse_faq_entries(settings.faq_source_file)
+        """Graph index is now populated at ingestion time. Returns existing node count."""
         graph_client = self._get_graph_client()
         if graph_client is None:
             return 0
-        graph_client.query("MATCH (f:FaqEntry) DETACH DELETE f")
-        graph_client.query(
-            "UNWIND $rows AS row CREATE (f:FaqEntry {id: row.id, question: row.question, answer: row.answer})",
-            {"rows": rows},
-        )
         try:
-            graph_client.query(
-                "CREATE FULLTEXT INDEX faq_fulltext IF NOT EXISTS FOR (f:FaqEntry) ON EACH [f.question, f.answer]"
-            )
-        except Exception as exc:
-            message = str(exc)
-            if "EquivalentSchemaRuleAlreadyExists" not in message and "equivalent index already exists" not in message.lower():
-                raise
-        return len(rows)
+            count_rows = graph_client.query("MATCH (f:FaqEntry) RETURN count(f) AS total")
+            return int(count_rows[0]["total"]) if count_rows else 0
+        except Exception:
+            return 0
 
     def ask(self, question: str, customer_id: str | None = None) -> RagResponse:
         _t0 = time.perf_counter()

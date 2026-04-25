@@ -92,3 +92,10 @@ app:
   multitenancy:
     enabled: true
     isolation-level: collection  # Each customer gets own collection
+
+  # Neo4j Graph Index Configuration
+  neo4j:
+    uri: ${NEO4J_URI:bolt://localhost:7687}
+    username: ${NEO4J_USERNAME:neo4j}
+    password: ${NEO4J_PASSWORD:neo4jpass}
+    enabled: ${NEO4J_GRAPH_INDEX_ENABLED:true}
