@@ -1,4 +1,5 @@
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import chromadb
 
@@ -106,23 +107,36 @@ class GraphPipeline:
             collection_name=collection,
             embedding_function=embeddings,
         )
-        vector_docs = vector_store.similarity_search(question, k=6)
+
+        # Run vector and graph queries in parallel
+        def _vector_search():
+            docs = vector_store.similarity_search(question, k=6)
+            return docs
+
+        def _graph_search():
+            gc = self._get_graph_client()
+            try:
+                return gc.query(
+                    """
+                    CALL db.index.fulltext.queryNodes('faq_fulltext', $q) YIELD node, score
+                    WITH node, score ORDER BY score DESC LIMIT 4
+                    OPTIONAL MATCH (node)-[:RELATED_TO]-(related:FaqEntry)
+                    RETURN node.question AS question, node.answer AS answer, score,
+                           collect(DISTINCT {q: related.question, a: related.answer})[..2] AS related
+                    """,
+                    {"q": question},
+                ) if gc else []
+            except Exception:
+                return []
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            vector_future = pool.submit(_vector_search)
+            graph_future = pool.submit(_graph_search)
+
+        vector_docs = vector_future.result()
         vector_context = "\n\n".join(doc.page_content for doc in vector_docs)
 
-        graph_client = self._get_graph_client()
-        try:
-            rows = graph_client.query(
-                """
-                CALL db.index.fulltext.queryNodes('faq_fulltext', $q) YIELD node, score
-                WITH node, score ORDER BY score DESC LIMIT 4
-                OPTIONAL MATCH (node)-[:RELATED_TO]-(related:FaqEntry)
-                RETURN node.question AS question, node.answer AS answer, score,
-                       collect(DISTINCT {q: related.question, a: related.answer})[..2] AS related
-                """,
-                {"q": question},
-            ) if graph_client else []
-        except Exception:
-            rows = []
+        rows = graph_future.result()
         graph_parts = []
         for row in rows:
             graph_parts.append(f"Q: {row['question']}\nA: {row['answer']}")

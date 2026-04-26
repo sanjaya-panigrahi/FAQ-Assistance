@@ -11,6 +11,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
@@ -124,22 +125,35 @@ public class GuardrailPipelineService {
                     "springai-crag");
         }
 
-        // --- CRAG: LLM-based relevance grading ---
+        // --- CRAG: LLM-based relevance grading (parallel) ---
         String[] chunks = context.split("\n\n");
-        List<String> relevantChunks = new ArrayList<>();
         int totalChunks = chunks.length;
+
+        List<CompletableFuture<String>> gradingFutures = new ArrayList<>();
         for (String chunk : chunks) {
-            if (chunk.isBlank()) continue;
-            String gradingPrompt = String.format(GRADING_PROMPT, question, chunk);
-            try {
-                String grade = chatClient.prompt().user(gradingPrompt).call().content().trim().toUpperCase();
-                if (grade.contains("RELEVANT") && !grade.contains("IRRELEVANT")) {
-                    relevantChunks.add(chunk);
-                }
-            } catch (Exception e) {
-                relevantChunks.add(chunk); // on error, keep the chunk
+            if (chunk.isBlank()) {
+                totalChunks--;
+                continue;
             }
+            final String c = chunk;
+            gradingFutures.add(CompletableFuture.supplyAsync(() -> {
+                String gradingPrompt = String.format(GRADING_PROMPT, question, c);
+                try {
+                    String grade = chatClient.prompt().user(gradingPrompt).call().content().trim().toUpperCase();
+                    if (grade.contains("RELEVANT") && !grade.contains("IRRELEVANT")) {
+                        return c;
+                    }
+                    return null;
+                } catch (Exception e) {
+                    return c; // on error, keep the chunk
+                }
+            }));
         }
+
+        List<String> relevantChunks = gradingFutures.stream()
+            .map(CompletableFuture::join)
+            .filter(java.util.Objects::nonNull)
+            .collect(Collectors.toCollection(ArrayList::new));
 
         double relevanceRatio = totalChunks > 0 ? (double) relevantChunks.size() / totalChunks : 0.0;
 
@@ -215,8 +229,10 @@ public class GuardrailPipelineService {
             if (resultsObj instanceof List<?> resultsList) {
                 for (int i = 0; i < Math.min(3, resultsList.size()); i++) {
                     if (resultsList.get(i) instanceof Map<?, ?> r) {
-                        sb.append("Source: ").append(r.getOrDefault("title", "")).append("\n")
-                          .append(r.getOrDefault("content", "")).append("\n\n");
+                        Object title = r.get("title");
+                        Object content = r.get("content");
+                        sb.append("Source: ").append(title != null ? title : "").append("\n")
+                          .append(content != null ? content : "").append("\n\n");
                     }
                 }
             }

@@ -1,6 +1,7 @@
 import json
 import time
 from collections.abc import Generator
+from concurrent.futures import ThreadPoolExecutor
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
@@ -74,10 +75,9 @@ class AgenticPipeline:
         )
         docs = self._extract_documents(query_payload)
 
-        # Rerank documents by LLM relevance scoring
+        # Rerank documents by LLM relevance scoring — parallel
         if len(docs) > 1:
-            scored_docs = []
-            for doc in docs:
+            def _score(doc):
                 prompt = (
                     f"Rate the relevance of this document to the question on a scale of 0-10. "
                     f"Respond with ONLY a number.\n\nQuestion: {question}\n\nDocument:\n{doc['content'][:500]}"
@@ -85,10 +85,12 @@ class AgenticPipeline:
                 try:
                     result = self._llm.invoke(prompt).content.strip()
                     score = float(result.split()[0])
-                    score = max(0, min(10, score))
+                    return doc, max(0, min(10, score))
                 except Exception:
-                    score = 5.0
-                scored_docs.append((doc, score))
+                    return doc, 5.0
+
+            with ThreadPoolExecutor(max_workers=min(len(docs), 6)) as pool:
+                scored_docs = list(pool.map(lambda d: _score(d), docs))
             scored_docs.sort(key=lambda x: x[1], reverse=True)
             docs = [d for d, _ in scored_docs[:4]]
 

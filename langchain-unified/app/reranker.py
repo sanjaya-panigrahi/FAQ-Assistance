@@ -2,8 +2,10 @@
 
 Scores each document's relevance to the question using the LLM as a cross-encoder,
 then returns the top-K most relevant documents in ranked order.
+Scoring calls run in parallel to minimize latency.
 """
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from langchain_openai import ChatOpenAI
 
 logger = logging.getLogger(__name__)
@@ -25,17 +27,19 @@ def rerank_documents(
     if not docs or len(docs) <= 1:
         return docs[:top_k]
 
-    scored = []
-    for doc in docs:
+    def _score_doc(doc):
         text = doc.page_content if hasattr(doc, "page_content") else str(doc)
         prompt = RERANK_PROMPT.format(question=question, document=text[:500])
         try:
             result = llm.invoke(prompt).content.strip()
             score = float(result.split()[0])
-            score = max(0, min(10, score))
+            return doc, max(0, min(10, score))
         except Exception:
-            score = 5.0  # default mid-score on error
-        scored.append((doc, score))
+            return doc, 5.0
+
+    with ThreadPoolExecutor(max_workers=min(len(docs), 6)) as pool:
+        futures = [pool.submit(_score_doc, doc) for doc in docs]
+        scored = [f.result() for f in futures]
 
     scored.sort(key=lambda x: x[1], reverse=True)
     return [doc for doc, _ in scored[:top_k]]

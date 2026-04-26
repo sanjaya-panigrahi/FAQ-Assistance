@@ -11,6 +11,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import java.time.Duration;
@@ -281,20 +282,27 @@ public class AgenticPipelineService {
     private List<String> rerankChunks(String question, List<String> chunks, int topK) {
         if (chunks.size() <= 1) return chunks;
         record ScoredChunk(String text, double score) {}
-        List<ScoredChunk> scored = new java.util.ArrayList<>();
-        for (String chunk : chunks) {
-            String truncated = chunk.length() > 500 ? chunk.substring(0, 500) : chunk;
-            String prompt = "Rate the relevance of this document to the question on a scale of 0-10. " +
-                "Respond with ONLY a number.\n\nQuestion: " + question + "\n\nDocument:\n" + truncated;
-            try {
-                String result = chatClient.prompt().user(prompt).call().content().trim();
-                double score = Double.parseDouble(result.split("\\s+")[0]);
-                score = Math.max(0, Math.min(10, score));
-                scored.add(new ScoredChunk(chunk, score));
-            } catch (Exception e) {
-                scored.add(new ScoredChunk(chunk, 5.0));
-            }
-        }
+
+        // Score all chunks in parallel — each LLM call is independent
+        List<CompletableFuture<ScoredChunk>> futures = chunks.stream()
+            .map(chunk -> CompletableFuture.supplyAsync(() -> {
+                String truncated = chunk.length() > 500 ? chunk.substring(0, 500) : chunk;
+                String prompt = "Rate the relevance of this document to the question on a scale of 0-10. " +
+                    "Respond with ONLY a number.\n\nQuestion: " + question + "\n\nDocument:\n" + truncated;
+                try {
+                    String result = chatClient.prompt().user(prompt).call().content().trim();
+                    double score = Double.parseDouble(result.split("\\s+")[0]);
+                    score = Math.max(0, Math.min(10, score));
+                    return new ScoredChunk(chunk, score);
+                } catch (Exception e) {
+                    return new ScoredChunk(chunk, 5.0);
+                }
+            }))
+            .toList();
+
+        List<ScoredChunk> scored = futures.stream()
+            .map(CompletableFuture::join)
+            .collect(java.util.stream.Collectors.toCollection(java.util.ArrayList::new));
         scored.sort((a, b) -> Double.compare(b.score(), a.score()));
         return scored.stream().limit(topK).map(ScoredChunk::text).toList();
     }

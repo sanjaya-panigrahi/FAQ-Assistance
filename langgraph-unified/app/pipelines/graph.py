@@ -1,4 +1,5 @@
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import chromadb
 
@@ -109,14 +110,17 @@ class GraphPipeline:
             collection_name=collection,
             embedding_function=embeddings,
         )
-        vector_docs = vector_store.similarity_search(question, k=6)
-        vector_context = "\n\n".join(doc.page_content for doc in vector_docs)
 
-        rows = []
-        graph_client = self._get_graph_client()
-        if graph_client is not None:
+        # Run vector and graph queries in parallel
+        def _vector_search():
+            return vector_store.similarity_search(question, k=6)
+
+        def _graph_search():
+            gc = self._get_graph_client()
+            if gc is None:
+                return []
             try:
-                rows = graph_client.query(
+                return gc.query(
                     """
                     CALL db.index.fulltext.queryNodes('faq_fulltext', $q) YIELD node, score
                     WITH node, score ORDER BY score DESC LIMIT 4
@@ -127,7 +131,16 @@ class GraphPipeline:
                     {"q": question},
                 )
             except Exception:
-                rows = []
+                return []
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            vector_future = pool.submit(_vector_search)
+            graph_future = pool.submit(_graph_search)
+
+        vector_docs = vector_future.result()
+        vector_context = "\n\n".join(doc.page_content for doc in vector_docs)
+
+        rows = graph_future.result()
         graph_parts = []
         for row in rows:
             graph_parts.append(f"Q: {row['question']}\nA: {row['answer']}")

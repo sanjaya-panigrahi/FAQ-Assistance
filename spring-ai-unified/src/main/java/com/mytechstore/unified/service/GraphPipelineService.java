@@ -10,6 +10,7 @@ import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
@@ -106,47 +107,57 @@ public class GraphPipelineService {
 
         @Cacheable(value = "graphAnswers", key = "#customerId + ':' + #question")
         public GraphRagResponse ask(String question, String customerId) {
-                List<String> chromaChunks = chromaQueryService.query(customerId, question, defaultTopK);
-                String vectorContext;
-                int vectorCount;
-                if (!chromaChunks.isEmpty()) {
-                        vectorContext = String.join("\n\n", chromaChunks);
-                        vectorCount = chromaChunks.size();
-                } else {
-                        if (!indexed.get()) {
-                                rebuildIndex();
-                        }
-                        List<Document> vectorHits = vectorStore.similaritySearch(
-                                        SearchRequest.builder().query(question).topK(defaultTopK).build());
-                        vectorContext = vectorHits.stream().map(Document::getText).collect(Collectors.joining("\n\n"));
-                        vectorCount = vectorHits.size();
-                }
+		// Run ChromaDB and Neo4j queries in parallel — they are independent
+		CompletableFuture<List<String>> chromaFuture = CompletableFuture.supplyAsync(() ->
+			chromaQueryService.query(customerId, question, defaultTopK)
+		);
 
-                List<String> tokens = extractSearchTokens(question);
-        List<String> graphFacts = neo4jClient.query(
-                                                "UNWIND $tokens AS token "
-                                                                + "MATCH (f:FaqChunk) "
-                                                                + "WHERE toLower(f.text) CONTAINS token "
-                                                                + "WITH f, count(*) AS score "
-                                                                + "ORDER BY score DESC "
-                                                                + "LIMIT 3 "
-                                                                + "OPTIONAL MATCH (f)-[:RELATED_TO]-(related:FaqChunk) "
-                                                                + "RETURN f.text AS text, score, collect(DISTINCT related.text)[..2] AS relatedTexts")
-                                .bind(tokens.isEmpty() ? List.of(normalize(question)) : tokens).to("tokens")
-                .fetch().all().stream()
-                .flatMap(row -> {
-                    List<String> texts = new ArrayList<>();
-                    texts.add(row.get("text").toString());
-                    Object relatedObj = row.get("relatedTexts");
-                    if (relatedObj instanceof List<?> relatedList) {
-                        for (Object r : relatedList) {
-                            if (r != null) texts.add(r.toString());
-                        }
-                    }
-                    return texts.stream();
-                })
-                                .distinct()
-                .toList();
+		List<String> tokens = extractSearchTokens(question);
+		CompletableFuture<List<String>> graphFuture = CompletableFuture.supplyAsync(() ->
+			neo4jClient.query(
+				"UNWIND $tokens AS token "
+					+ "MATCH (f:FaqChunk) "
+					+ "WHERE toLower(f.text) CONTAINS token "
+					+ "WITH f, count(*) AS score "
+					+ "ORDER BY score DESC "
+					+ "LIMIT 3 "
+					+ "OPTIONAL MATCH (f)-[:RELATED_TO]-(related:FaqChunk) "
+					+ "RETURN f.text AS text, score, collect(DISTINCT related.text)[..2] AS relatedTexts")
+				.bind(tokens.isEmpty() ? List.of(normalize(question)) : tokens).to("tokens")
+				.fetch().all().stream()
+				.flatMap(row -> {
+					List<String> texts = new ArrayList<>();
+					texts.add(row.get("text").toString());
+					Object relatedObj = row.get("relatedTexts");
+					if (relatedObj instanceof List<?> relatedList) {
+						for (Object r : relatedList) {
+							if (r != null) texts.add(r.toString());
+						}
+					}
+					return texts.stream();
+				})
+				.distinct()
+				.toList()
+		);
+
+		// Await both results
+		List<String> chromaChunks = chromaFuture.join();
+		String vectorContext;
+		int vectorCount;
+		if (!chromaChunks.isEmpty()) {
+			vectorContext = String.join("\n\n", chromaChunks);
+			vectorCount = chromaChunks.size();
+		} else {
+			if (!indexed.get()) {
+				rebuildIndex();
+			}
+			List<Document> vectorHits = vectorStore.similaritySearch(
+				SearchRequest.builder().query(question).topK(defaultTopK).build());
+			vectorContext = vectorHits.stream().map(Document::getText).collect(Collectors.joining("\n\n"));
+			vectorCount = vectorHits.size();
+		}
+
+		List<String> graphFacts = graphFuture.join();
 
         String graphContext = String.join("\n", graphFacts);
         String customerLabel = (customerId != null && !customerId.isBlank()) ? customerId.trim() : "the company";

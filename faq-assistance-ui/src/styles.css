@@ -107,7 +107,7 @@ select {
   top: 0;
   right: 0;
   height: 100vh;
-  width: min(680px, 96vw);
+  width: min(960px, 96vw);
   padding: 18px;
   background: #ffffff;
   border-left: 1px solid var(--border);

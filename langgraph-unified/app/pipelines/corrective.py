@@ -1,6 +1,7 @@
 import logging
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import TypedDict
 
 import chromadb
@@ -99,15 +100,19 @@ class CorrectivePipeline:
         docs = state["docs"]
         if not docs:
             return {"relevant_docs": [], "relevance_ratio": 0.0}
-        relevant = []
-        for doc in docs:
+
+        def _grade(doc):
             prompt = GRADING_PROMPT.format(question=state["question"], document=doc.page_content)
             try:
                 result = self._grading_llm.invoke(prompt).content.strip().upper()
-                if "RELEVANT" in result and "IRRELEVANT" not in result:
-                    relevant.append(doc)
+                return "RELEVANT" in result and "IRRELEVANT" not in result
             except Exception:
-                relevant.append(doc)
+                return True
+
+        with ThreadPoolExecutor(max_workers=min(len(docs), 6)) as pool:
+            grades = list(pool.map(lambda d: _grade(d), docs))
+
+        relevant = [doc for doc, rel in zip(docs, grades) if rel]
         ratio = len(relevant) / len(docs)
         return {"relevant_docs": relevant, "relevance_ratio": ratio}
 
@@ -157,6 +162,12 @@ class CorrectivePipeline:
 
         context = "\n\n".join(context_parts)
         if not context.strip():
+            # Fallback: use original docs when grading filtered everything and no web search
+            docs = state.get("docs", [])
+            context = "\n\n".join(doc.page_content for doc in docs)
+            strategy = "crag+fallback-to-original"
+
+        if not context.strip():
             return {"answer": NO_CONTEXT_ANSWER, "strategy": strategy, "context": ""}
 
         answer = self._llm.invoke(
@@ -201,9 +212,12 @@ class CorrectivePipeline:
             "strategy": "",
         })
 
+        relevant = result.get("relevant_docs", [])
+        docs = result.get("docs", [])
+        chunks_used = len(relevant) if relevant else len(docs)
         response = RagResponse(
             answer=result["answer"],
-            chunksUsed=len(result.get("relevant_docs", [])),
+            chunksUsed=chunks_used,
             strategy=result["strategy"],
             orchestrationStrategy="langgraph-crag-stategraph",
         )

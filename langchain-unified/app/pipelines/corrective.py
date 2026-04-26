@@ -1,6 +1,7 @@
 import logging
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import chromadb
 import requests
@@ -63,18 +64,20 @@ class CorrectivePipeline:
     def _grade_documents(self, question: str, docs: list) -> tuple[list, list]:
         """Grade each document for relevance using LLM-as-judge.
         Returns (relevant_docs, irrelevant_docs)."""
-        relevant = []
-        irrelevant = []
-        for doc in docs:
+        def _grade(doc):
             prompt = GRADING_PROMPT.format(question=question, document=doc.page_content)
             try:
                 result = self._grading_llm.invoke(prompt).content.strip().upper()
-                if "RELEVANT" in result and "IRRELEVANT" not in result:
-                    relevant.append(doc)
-                else:
-                    irrelevant.append(doc)
+                is_relevant = "RELEVANT" in result and "IRRELEVANT" not in result
             except Exception:
-                relevant.append(doc)  # on error, keep the doc
+                is_relevant = True  # on error, keep the doc
+            return doc, is_relevant
+
+        with ThreadPoolExecutor(max_workers=min(len(docs), 6)) as pool:
+            results = list(pool.map(lambda d: _grade(d), docs))
+
+        relevant = [doc for doc, rel in results if rel]
+        irrelevant = [doc for doc, rel in results if not rel]
         return relevant, irrelevant
 
     def _web_search_fallback(self, question: str) -> str:
@@ -150,6 +153,11 @@ class CorrectivePipeline:
         context = "\n\n".join(context_parts)
 
         if not context.strip():
+            # Fallback: use original docs when grading filtered everything and no web search
+            context = "\n\n".join(doc.page_content for doc in docs)
+            strategy = "crag+fallback-to-original"
+
+        if not context.strip():
             return RagResponse(
                 answer=NO_CONTEXT_ANSWER,
                 chunksUsed=0,
@@ -173,9 +181,10 @@ class CorrectivePipeline:
             ]
         ).content
 
+        chunks_used = len(relevant_docs) if relevant_docs else len(docs)
         response = RagResponse(
             answer=str(answer),
-            chunksUsed=len(relevant_docs),
+            chunksUsed=chunks_used,
             strategy=strategy,
             orchestrationStrategy="langchain-crag",
         )

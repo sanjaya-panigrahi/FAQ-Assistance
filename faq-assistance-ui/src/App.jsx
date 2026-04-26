@@ -33,14 +33,14 @@ const fallbackCustomers = [
 ];
 
 const services = [
-  { id: "agentic",    label: "Agentic RAG" },
-  { id: "retrieval",  label: "RAG Retrieval" },
-  { id: "graph",      label: "Graph RAG" },
-  // { id: "corrective", label: "Corrective RAG" },
-  // { id: "multimodal", label: "Multimodal RAG" },
-  // { id: "hierarchical", label: "Hierarchical RAG" },
+  { id: "agentic",      label: "Agentic RAG" },
+  { id: "retrieval",    label: "RAG Retrieval" },
+  { id: "graph",        label: "Graph RAG" },
+  { id: "corrective",   label: "Corrective RAG" },
+  { id: "multimodal",   label: "Multimodal RAG" },
+  { id: "hierarchical", label: "Hierarchical RAG" },
 ];
-const enabledServiceIds = new Set(["agentic", "retrieval", "graph"]);
+const enabledServiceIds = new Set(["agentic", "retrieval", "graph", "corrective", "multimodal", "hierarchical"]);
 
 // Base URLs keyed by [framework][serviceId]
 const serviceUrls = {

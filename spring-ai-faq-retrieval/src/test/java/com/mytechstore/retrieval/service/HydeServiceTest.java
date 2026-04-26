@@ -22,7 +22,7 @@ class HydeServiceTest {
     @Mock
     private ChatClient chatClient;
     @Mock
-    private ChatClient.PromptRequest promptRequest;
+    private ChatClient.ChatClientRequestSpec promptRequest;
     @Mock
     private ChatClient.CallPromptResponseSpec callResponse;
     @Mock
