@@ -13,7 +13,10 @@ public record RetrievalQueryResponse(
     boolean grounded,
     int retrievalLatencyMs,
     int generationLatencyMs,
-    List<RetrievalChunk> chunks
+    List<RetrievalChunk> chunks,
+    boolean hydeUsed,
+    boolean cacheHit,
+    String rerankerType
 ) implements Serializable {
-    private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 2L;
 }

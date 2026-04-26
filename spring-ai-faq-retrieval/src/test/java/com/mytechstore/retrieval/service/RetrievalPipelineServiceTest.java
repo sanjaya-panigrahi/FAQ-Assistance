@@ -37,6 +37,12 @@ class RetrievalPipelineServiceTest {
     private HttpClient httpClient;
     @Mock
     private AnalyticsReporter analyticsReporter;
+    @Mock
+    private CrossEncoderReranker crossEncoderReranker;
+    @Mock
+    private HydeService hydeService;
+    @Mock
+    private SemanticCacheService semanticCacheService;
 
     @BeforeEach
     void setUp() {
@@ -48,6 +54,9 @@ class RetrievalPipelineServiceTest {
             embeddingModel,
             objectMapper,
             redisTemplate,
+            crossEncoderReranker,
+            hydeService,
+            semanticCacheService,
             "http://chroma:8000",
             "faq_",
             "smoke_tenant",

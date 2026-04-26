@@ -61,7 +61,10 @@ class RetrievalControllerTest {
             true,
             100,
             50,
-            Collections.emptyList()
+            Collections.emptyList(),
+            false,
+            false,
+            "weighted"
         );
 
         when(retrievalPipelineService.query(any(RetrievalQueryRequest.class)))
@@ -94,7 +97,10 @@ class RetrievalControllerTest {
             true,
             120,
             60,
-            Collections.emptyList()
+            Collections.emptyList(),
+            false,
+            false,
+            "weighted"
         );
 
         when(retrievalPipelineService.query(any(RetrievalQueryRequest.class)))
@@ -126,7 +132,10 @@ class RetrievalControllerTest {
             true,
             100,
             50,
-            Collections.emptyList()
+            Collections.emptyList(),
+            false,
+            false,
+            "weighted"
         );
 
         when(retrievalPipelineService.query(any(RetrievalQueryRequest.class)))
@@ -157,7 +166,10 @@ class RetrievalControllerTest {
             true,
             100,
             50,
-            Collections.emptyList()
+            Collections.emptyList(),
+            false,
+            false,
+            "weighted"
         );
 
         when(retrievalPipelineService.query(any(RetrievalQueryRequest.class)))
@@ -201,7 +213,10 @@ class RetrievalControllerTest {
             true,
             100,
             50,
-            Collections.emptyList()
+            Collections.emptyList(),
+            false,
+            false,
+            "weighted"
         );
 
         when(retrievalPipelineService.query(any(RetrievalQueryRequest.class)))
@@ -232,7 +247,10 @@ class RetrievalControllerTest {
             true,
             100,
             50,
-            Collections.emptyList()
+            Collections.emptyList(),
+            false,
+            false,
+            "weighted"
         );
 
         when(retrievalPipelineService.query(any(RetrievalQueryRequest.class)))

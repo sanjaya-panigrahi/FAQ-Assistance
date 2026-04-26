@@ -95,6 +95,9 @@ resilience4j:
         waitDurationInOpenState: 8s
       generationService:
         baseConfig: default
+      rerankerService:
+        baseConfig: default
+        waitDurationInOpenState: 15s
   
   retry:
     configs:
@@ -167,3 +170,21 @@ retrieval:
   similarity-threshold: ${APP_RAG_SIMILARITY_THRESHOLD:0.35}
   rerank-weight-vector: ${FAQ_RETRIEVAL_WEIGHT_VECTOR:0.7}
   rerank-weight-lexical: ${FAQ_RETRIEVAL_WEIGHT_LEXICAL:0.3}
+
+# --- Enhanced Pipeline: Cross-Encoder Reranker ---
+reranker:
+  enabled: ${RERANKER_ENABLED:false}
+  url: ${RERANKER_URL:http://reranker-service:8100}
+  top-k: ${RERANKER_TOP_K:6}
+
+# --- Enhanced Pipeline: HyDE (Hypothetical Document Embeddings) ---
+hyde:
+  enabled: ${HYDE_ENABLED:false}
+  max-tokens: ${HYDE_MAX_TOKENS:150}
+
+# --- Enhanced Pipeline: Semantic Cache ---
+semantic-cache:
+  enabled: ${SEMANTIC_CACHE_ENABLED:false}
+  similarity-threshold: ${SEMANTIC_CACHE_SIMILARITY_THRESHOLD:0.95}
+  ttl: ${SEMANTIC_CACHE_TTL:3600}
+  max-entries: ${SEMANTIC_CACHE_MAX_ENTRIES:5000}

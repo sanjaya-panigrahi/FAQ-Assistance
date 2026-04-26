@@ -20,11 +20,13 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -64,6 +66,9 @@ public class RetrievalPipelineService {
     private final ObjectMapper objectMapper;
     private final WebClient webClient;
     private final RedisTemplate<String, Object> redisTemplate;
+    private final CrossEncoderReranker crossEncoderReranker;
+    private final HydeService hydeService;
+    private final SemanticCacheService semanticCacheService;
 
     private final String chromaUrl;
     private final String collectionPrefix;
@@ -79,6 +84,9 @@ public class RetrievalPipelineService {
         EmbeddingModel embeddingModel,
         ObjectMapper objectMapper,
         RedisTemplate<String, Object> redisTemplate,
+        CrossEncoderReranker crossEncoderReranker,
+        HydeService hydeService,
+        SemanticCacheService semanticCacheService,
         @Value("${retrieval.chroma-url}") String chromaUrl,
         @Value("${retrieval.collection-prefix}") String collectionPrefix,
         @Value("${retrieval.default-tenant}") String defaultTenant,
@@ -92,6 +100,9 @@ public class RetrievalPipelineService {
         this.embeddingModel = embeddingModel;
         this.objectMapper = objectMapper;
         this.redisTemplate = redisTemplate;
+        this.crossEncoderReranker = crossEncoderReranker;
+        this.hydeService = hydeService;
+        this.semanticCacheService = semanticCacheService;
         this.webClient = WebClient.builder().build();
         this.chromaUrl = chromaUrl;
         this.collectionPrefix = collectionPrefix;
@@ -140,20 +151,89 @@ public class RetrievalPipelineService {
         String queryContext = request.queryContext() == null ? "" : request.queryContext().trim();
         int topK = validateTopK(request.topK() == null ? defaultTopK : request.topK());
         double threshold = validateThreshold(request.similarityThreshold() == null ? defaultThreshold : request.similarityThreshold());
-        int effectiveTopK = topK;
 
         logger.debug("Query received - tenant: {}, question length: {}, idempotency_key: {}", 
             tenantId, question.length(), idempotencyKey);
 
         String transformedQuery = queryContext.isBlank() ? question : question + " " + queryContext;
 
+        // Embed query (reused for semantic cache + vector search)
+        float[] queryEmbedding = embeddingCache.computeIfAbsent(transformedQuery,
+                q -> embeddingModel.embed(q));
+
+        // --- Semantic Cache CHECK ---
+        boolean cacheHit = false;
+        if (semanticCacheService.isEnabled() && queryEmbedding != null && queryEmbedding.length > 0) {
+            RetrievalQueryResponse cached = semanticCacheService.lookup(tenantId, transformedQuery, queryEmbedding);
+            if (cached != null) {
+                cacheHit = true;
+                return new RetrievalQueryResponse(
+                        cached.tenantId(), cached.question(), cached.transformedQuery(),
+                        cached.strategy(), cached.answer(), cached.chunksUsed(),
+                        cached.grounded(), cached.retrievalLatencyMs(), cached.generationLatencyMs(),
+                        cached.chunks(), cached.hydeUsed(), true, cached.rerankerType());
+            }
+        }
+
+        // --- HyDE: generate hypothesis embedding in parallel ---
+        boolean hydeUsed = false;
+        CompletableFuture<float[]> hydeFuture = null;
+        if (hydeService.isEnabled()) {
+            hydeFuture = CompletableFuture.supplyAsync(() -> hydeService.generateHypothesisEmbedding(question));
+        }
+
+        // --- Expanded Hybrid Retrieval (k=20 candidate pool for cross-encoder) ---
+        int fetchK = crossEncoderReranker.isEnabled() ? Math.max(20, topK * 4) : Math.max(topK * 4, topK);
+
         long retrievalStart = System.currentTimeMillis();
-        List<ChunkCandidate> candidates = hybridRetrieve(tenantId, transformedQuery, Math.max(effectiveTopK * 4, effectiveTopK));
-        List<ChunkCandidate> reranked = rerank(candidates, effectiveTopK, threshold);
+        List<ChunkCandidate> candidates = hybridRetrieve(tenantId, transformedQuery, queryEmbedding, fetchK);
+
+        // --- HyDE: merge hypothesis search results ---
+        if (hydeFuture != null) {
+            try {
+                float[] hydeEmbedding = hydeFuture.join();
+                if (hydeEmbedding != null && hydeEmbedding.length > 0) {
+                    List<ChunkCandidate> hydeCandidates = vectorSearchWithEmbedding(tenantId, hydeEmbedding, fetchK);
+                    candidates = mergeAndDeduplicate(candidates, hydeCandidates);
+                    hydeUsed = true;
+                    logger.debug("HyDE merged {} additional candidates (total now: {})", hydeCandidates.size(), candidates.size());
+                }
+            } catch (Exception e) {
+                logger.warn("HyDE hypothesis search failed, continuing with original results", e);
+            }
+        }
+
+        // --- Reranking: cross-encoder or weighted fallback ---
+        List<ChunkCandidate> reranked;
+        String rerankerType;
+
+        if (crossEncoderReranker.isEnabled() && !candidates.isEmpty()) {
+            List<String> docs = candidates.stream().map(c -> c.content).collect(Collectors.toList());
+            List<CrossEncoderReranker.ScoredResult> ceResults = crossEncoderReranker.rerank(transformedQuery, docs, topK);
+
+            if (!ceResults.isEmpty()) {
+                reranked = new ArrayList<>();
+                for (int i = 0; i < ceResults.size(); i++) {
+                    CrossEncoderReranker.ScoredResult sr = ceResults.get(i);
+                    ChunkCandidate original = candidates.get(sr.originalIndex());
+                    original.rerankScore = round4(sr.score());
+                    original.rank = i + 1;
+                    reranked.add(original);
+                }
+                rerankerType = "cross-encoder";
+            } else {
+                reranked = rerank(candidates, topK, threshold);
+                rerankerType = "weighted-fallback";
+            }
+        } else {
+            reranked = rerank(candidates, topK, threshold);
+            rerankerType = "weighted";
+        }
+
         int retrievalMs = Math.toIntExact(System.currentTimeMillis() - retrievalStart);
         
-        logger.debug("Retrieval completed - candidates: {}, reranked: {}, time: {}ms", 
-            candidates.size(), reranked.size(), retrievalMs);
+        logger.debug("Retrieval completed - candidates: {}, reranked: {}, reranker: {}, time: {}ms", 
+            candidates.size(), reranked.size(), rerankerType, retrievalMs);
 
         long generationStart = System.currentTimeMillis();
         String answer = groundedGeneration(question, reranked);
@@ -174,22 +254,33 @@ public class RetrievalPipelineService {
             ));
         }
 
+        // Build strategy string reflecting active components
+        String strategy = buildStrategyString(hydeUsed, rerankerType);
+
         long totalMs = System.currentTimeMillis() - totalStart;
-        logger.info("Query pipeline complete - tenant: {}, total time: {}ms (retrieval: {}ms, generation: {}ms)", 
-            tenantId, totalMs, retrievalMs, generationMs);
+        logger.info("Query pipeline complete - tenant: {}, total time: {}ms (retrieval: {}ms, generation: {}ms), hyde: {}, reranker: {}", 
+            tenantId, totalMs, retrievalMs, generationMs, hydeUsed, rerankerType);
 
         RetrievalQueryResponse response = new RetrievalQueryResponse(
             tenantId,
             question,
             transformedQuery,
-            "query-transform+hybrid-retrieval+rerank+grounded-generation",
+            strategy,
             answer,
             chunks.size(),
             !chunks.isEmpty(),
             retrievalMs,
             generationMs,
-            chunks
+            chunks,
+            hydeUsed,
+            cacheHit,
+            rerankerType
         );
+
+        // --- Semantic Cache STORE ---
+        if (semanticCacheService.isEnabled() && queryEmbedding != null && queryEmbedding.length > 0) {
+            semanticCacheService.store(tenantId, transformedQuery, queryEmbedding, response);
+        }
 
         // Cache idempotent response for 24 hours if idempotency key provided
         if (idempotencyKey != null) {
@@ -199,10 +290,23 @@ public class RetrievalPipelineService {
         }
 
         analyticsReporter.postEvent(question, answer, tenantId,
-                "retrieval", "query-transform+hybrid-retrieval+rerank+grounded-generation",
+                "retrieval", strategy,
                 totalMs, reranked.stream().map(c -> c.content).collect(Collectors.joining("\n\n")));
 
         return response;
+    }
+
+    private String buildStrategyString(boolean hydeUsed, String rerankerType) {
+        StringBuilder sb = new StringBuilder("query-transform");
+        if (hydeUsed) sb.append("+hyde");
+        sb.append("+hybrid-retrieval");
+        if ("cross-encoder".equals(rerankerType)) {
+            sb.append("+cross-encoder-rerank");
+        } else {
+            sb.append("+rerank");
+        }
+        sb.append("+grounded-generation");
+        return sb.toString();
     }
 
     public RetrievalQueryResponse queryFallback(RetrievalQueryRequest request, Exception ex) {
@@ -217,7 +321,10 @@ public class RetrievalPipelineService {
             false,
             0,
             0,
-            Collections.emptyList()
+            Collections.emptyList(),
+            false,
+            false,
+            "none"
         );
     }
 
@@ -285,15 +392,13 @@ public class RetrievalPipelineService {
         return question;
     }
 
-    private List<ChunkCandidate> hybridRetrieve(String tenantId, String transformedQuery, int fetchTopK) {
+    private List<ChunkCandidate> hybridRetrieve(String tenantId, String transformedQuery, float[] embedding, int fetchTopK) {
         String collectionName = collectionPrefix + tenantId;
         String collectionId = resolveCollectionId(collectionName);
         if (collectionId == null || collectionId.isBlank()) {
             return List.of();
         }
 
-        float[] embedding = embeddingCache.computeIfAbsent(transformedQuery, 
-            q -> embeddingModel.embed(q));
         if (embedding == null || embedding.length == 0) {
             return List.of();
         }
@@ -315,6 +420,50 @@ public class RetrievalPipelineService {
         } catch (Exception e) {
             return List.of();
         }
+    }
+
+    /**
+     * Vector search using a pre-computed embedding (used by HyDE).
+     */
+    private List<ChunkCandidate> vectorSearchWithEmbedding(String tenantId, float[] embedding, int fetchTopK) {
+        String collectionName = collectionPrefix + tenantId;
+        String collectionId = resolveCollectionId(collectionName);
+        if (collectionId == null || collectionId.isBlank()) {
+            return List.of();
+        }
+
+        List<Double> embeddingValues = new ArrayList<>(embedding.length);
+        for (float value : embedding) {
+            embeddingValues.add((double) value);
+        }
+
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("query_embeddings", List.of(embeddingValues));
+        payload.put("n_results", fetchTopK);
+        payload.put("include", List.of("documents", "metadatas", "distances"));
+
+        try {
+            String response = postJson(chromaUrl + "/api/v1/collections/" + collectionId + "/query", payload);
+            Map<String, Object> parsed = objectMapper.readValue(response, new TypeReference<>() {});
+            return parseCandidates("", parsed);
+        } catch (Exception e) {
+            logger.debug("HyDE vector search failed", e);
+            return List.of();
+        }
+    }
+
+    /**
+     * Merge two candidate lists and deduplicate by content.
+     */
+    private List<ChunkCandidate> mergeAndDeduplicate(List<ChunkCandidate> primary, List<ChunkCandidate> secondary) {
+        LinkedHashMap<String, ChunkCandidate> seen = new LinkedHashMap<>();
+        for (ChunkCandidate c : primary) {
+            seen.putIfAbsent(c.content, c);
+        }
+        for (ChunkCandidate c : secondary) {
+            seen.putIfAbsent(c.content, c);
+        }
+        return new ArrayList<>(seen.values());
     }
 
     private List<ChunkCandidate> parseCandidates(String query, Map<String, Object> payload) {
@@ -406,7 +555,8 @@ public class RetrievalPipelineService {
             );
         }
         String transformedQuery = transformQuery(question, null);
-        List<ChunkCandidate> candidates = hybridRetrieve(tenantId, transformedQuery, Math.max(defaultTopK * 4, defaultTopK));
+        float[] embedding = embeddingCache.computeIfAbsent(transformedQuery, q -> embeddingModel.embed(q));
+        List<ChunkCandidate> candidates = hybridRetrieve(tenantId, transformedQuery, embedding, Math.max(defaultTopK * 4, defaultTopK));
         List<ChunkCandidate> reranked = rerank(candidates, defaultTopK, defaultThreshold);
         if (reranked.isEmpty()) {
             return Flux.just(

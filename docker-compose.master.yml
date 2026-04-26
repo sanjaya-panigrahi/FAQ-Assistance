@@ -249,6 +249,10 @@ services:
       SERVER_PORT: 9010
       RETRIEVAL_SERVICE_PORT: 9010
       JAVA_OPTS: "-Xms512m -Xmx768m"
+      RERANKER_ENABLED: ${RERANKER_ENABLED:-false}
+      RERANKER_URL: http://reranker-service:8100
+      HYDE_ENABLED: ${HYDE_ENABLED:-false}
+      SEMANTIC_CACHE_ENABLED: ${SEMANTIC_CACHE_ENABLED:-false}
     depends_on:
       chroma-faq:
         condition: service_healthy
@@ -262,6 +266,23 @@ services:
       timeout: 20s
       retries: 10
       start_period: 420s
+    restart: unless-stopped
+
+  reranker-service:
+    build:
+      context: ./reranker-service
+      dockerfile: Dockerfile
+    container_name: reranker-service
+    ports:
+      - "${RERANKER_PORT:-8100}:8100"
+    networks:
+      - faq-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
     restart: unless-stopped
 
   analytics-mysql:
