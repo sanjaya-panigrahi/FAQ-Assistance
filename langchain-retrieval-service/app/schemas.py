@@ -23,6 +23,7 @@ class RetrievalQueryResponse(BaseModel):
     tenantId: str
     question: str
     transformedQuery: str
+    queryVariants: list[str] | None = None
     strategy: str
     answer: str
     chunksUsed: int
