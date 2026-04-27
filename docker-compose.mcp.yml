@@ -1,0 +1,206 @@
+# docker-compose.mcp.yml
+# MCP Server layer — deploy alongside docker-compose.master.yml
+#
+# Usage:
+#   docker compose -f docker-compose.master.yml -f docker-compose.mcp.yml up -d
+#
+# To enable MCP mode in framework services, set USE_MCP=true in .env
+
+services:
+
+  # ─── MCP Server: ChromaDB ──────────────────────────────────────────
+  mcp-chromadb:
+    build:
+      context: ./mcp-servers
+    container_name: mcp-chromadb
+    command: ["python", "entrypoint.py", "chromadb_server", "8301"]
+    ports:
+      - "8301:8301"
+    environment:
+      CHROMA_HOST: chroma-faq
+      CHROMA_PORT: 8000
+      APP_CHROMA_COLLECTION_NAME_PREFIX: ${APP_CHROMA_COLLECTION_NAME_PREFIX:-faq_}
+      MCP_API_KEY: ${MCP_API_KEY:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      MCP_TRANSPORT: sse
+      MCP_PORT: 8301
+    depends_on:
+      chroma-faq:
+        condition: service_healthy
+    networks:
+      - faq-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8301/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # ─── MCP Server: Neo4j ─────────────────────────────────────────────
+  mcp-neo4j:
+    build:
+      context: ./mcp-servers
+    container_name: mcp-neo4j
+    command: ["python", "entrypoint.py", "neo4j_server", "8302"]
+    ports:
+      - "8302:8302"
+    environment:
+      NEO4J_URI: bolt://neo4j-unified:7687
+      NEO4J_USERNAME: neo4j
+      NEO4J_PASSWORD: neo4jpass
+      MCP_API_KEY: ${MCP_API_KEY:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      MCP_TRANSPORT: sse
+      MCP_PORT: 8302
+    depends_on:
+      neo4j-unified:
+        condition: service_healthy
+    networks:
+      - faq-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8302/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # ─── MCP Server: LLM Gateway ──────────────────────────────────────
+  mcp-llm-gateway:
+    build:
+      context: ./mcp-servers
+    container_name: mcp-llm-gateway
+    command: ["python", "entrypoint.py", "llm_gateway_server", "8303"]
+    ports:
+      - "8303:8303"
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_CHAT_MODEL: ${OPENAI_CHAT_MODEL:-gpt-4o-mini}
+      OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}
+      OPENAI_VISION_MODEL: ${OPENAI_VISION_MODEL:-gpt-4o-mini}
+      MCP_API_KEY: ${MCP_API_KEY:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      MCP_TRANSPORT: sse
+      MCP_PORT: 8303
+    networks:
+      - faq-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8303/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # ─── MCP Server: Web Search ───────────────────────────────────────
+  mcp-web-search:
+    build:
+      context: ./mcp-servers
+    container_name: mcp-web-search
+    command: ["python", "entrypoint.py", "web_search_server", "8304"]
+    ports:
+      - "8304:8304"
+    environment:
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      MCP_API_KEY: ${MCP_API_KEY:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      MCP_TRANSPORT: sse
+      MCP_PORT: 8304
+    networks:
+      - faq-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8304/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  # ─── MCP Server: Cache ────────────────────────────────────────────
+  mcp-cache:
+    build:
+      context: ./mcp-servers
+    container_name: mcp-cache
+    command: ["python", "entrypoint.py", "cache_server", "8305"]
+    ports:
+      - "8305:8305"
+    environment:
+      REDIS_HOST: redis-cache
+      REDIS_PORT: 6379
+      REDIS_TTL_SECONDS: ${REDIS_TTL_SECONDS:-86400}
+      MCP_API_KEY: ${MCP_API_KEY:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      MCP_TRANSPORT: sse
+      MCP_PORT: 8305
+    depends_on:
+      redis-cache:
+        condition: service_healthy
+    networks:
+      - faq-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8305/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  # ─── MCP Server: Analytics ────────────────────────────────────────
+  mcp-analytics:
+    build:
+      context: ./mcp-servers
+    container_name: mcp-analytics
+    command: ["python", "entrypoint.py", "analytics_server", "8306"]
+    ports:
+      - "8306:8306"
+    environment:
+      ANALYTICS_DB_HOST: analytics-mysql
+      ANALYTICS_DB_PORT: 3306
+      ANALYTICS_DB_NAME: rag_analytics
+      ANALYTICS_DB_USER: analytics
+      ANALYTICS_DB_PASSWORD: ${ANALYTICS_MYSQL_PASSWORD}
+      MCP_API_KEY: ${MCP_API_KEY:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      MCP_TRANSPORT: sse
+      MCP_PORT: 8306
+    depends_on:
+      analytics-mysql:
+        condition: service_healthy
+    networks:
+      - faq-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8306/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+networks:
+  faq-network:
+    external: true

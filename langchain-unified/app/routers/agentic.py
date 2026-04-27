@@ -2,13 +2,20 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 
-from ..pipelines.agentic import AgenticPipeline
+from ..mcp_client import is_mcp_enabled
 from ..security import TokenPayload, get_current_user, get_current_user_optional
 from ..schemas import RagRequest, RagResponse
 
 router = APIRouter(prefix="/agentic")
-pipeline = AgenticPipeline()
-ORCHESTRATION_STRATEGY = "langchain-agent"
+
+if is_mcp_enabled():
+    from ..pipelines.mcp_pipelines import McpAgenticPipeline
+    pipeline = McpAgenticPipeline()
+    ORCHESTRATION_STRATEGY = "mcp-agentic"
+else:
+    from ..pipelines.agentic import AgenticPipeline
+    pipeline = AgenticPipeline()
+    ORCHESTRATION_STRATEGY = "langchain-agent"
 
 
 @router.get("/actuator/health")

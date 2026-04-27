@@ -2,12 +2,18 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 
-from ..pipelines.retrieval import RetrievalPipeline
+from ..mcp_client import is_mcp_enabled
 from ..security import TokenPayload, get_current_user, get_current_user_optional
 from ..schemas import RetrievalQueryRequest, RetrievalQueryResponse
 
 router = APIRouter(prefix="/retrieval")
-pipeline = RetrievalPipeline()
+
+if is_mcp_enabled():
+    from ..pipelines.mcp_pipelines import McpRetrievalPipeline
+    pipeline = McpRetrievalPipeline()
+else:
+    from ..pipelines.retrieval import RetrievalPipeline
+    pipeline = RetrievalPipeline()
 
 
 @router.get("/actuator/health")

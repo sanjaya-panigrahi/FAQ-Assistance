@@ -259,3 +259,77 @@ services:
         paths:
           - /langgraph/hierarchical
         strip_path: true
+
+  # ─── MCP Server Routes (optional external access) ─────────────────
+
+  - name: mcp-chromadb
+    url: http://mcp-chromadb:8301
+    connect_timeout: 30000
+    write_timeout: 30000
+    read_timeout: 60000
+    retries: 1
+    routes:
+      - name: mcp-chromadb-route
+        paths:
+          - /mcp/chromadb
+        strip_path: true
+
+  - name: mcp-neo4j
+    url: http://mcp-neo4j:8302
+    connect_timeout: 30000
+    write_timeout: 30000
+    read_timeout: 60000
+    retries: 1
+    routes:
+      - name: mcp-neo4j-route
+        paths:
+          - /mcp/neo4j
+        strip_path: true
+
+  - name: mcp-llm-gateway
+    url: http://mcp-llm-gateway:8303
+    connect_timeout: 30000
+    write_timeout: 30000
+    read_timeout: 120000
+    retries: 1
+    routes:
+      - name: mcp-llm-gateway-route
+        paths:
+          - /mcp/llm
+        strip_path: true
+
+  - name: mcp-web-search
+    url: http://mcp-web-search:8304
+    connect_timeout: 30000
+    write_timeout: 30000
+    read_timeout: 30000
+    retries: 1
+    routes:
+      - name: mcp-web-search-route
+        paths:
+          - /mcp/search
+        strip_path: true
+
+  - name: mcp-cache
+    url: http://mcp-cache:8305
+    connect_timeout: 30000
+    write_timeout: 30000
+    read_timeout: 30000
+    retries: 1
+    routes:
+      - name: mcp-cache-route
+        paths:
+          - /mcp/cache
+        strip_path: true
+
+  - name: mcp-analytics
+    url: http://mcp-analytics:8306
+    connect_timeout: 30000
+    write_timeout: 30000
+    read_timeout: 60000
+    retries: 1
+    routes:
+      - name: mcp-analytics-route
+        paths:
+          - /mcp/analytics
+        strip_path: true

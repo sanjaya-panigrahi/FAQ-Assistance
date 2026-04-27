@@ -2,13 +2,20 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 
-from ..pipelines.corrective import CorrectivePipeline
+from ..mcp_client import is_mcp_enabled
 from ..security import TokenPayload, get_current_user, get_current_user_optional
 from ..schemas import RagRequest, RagResponse
 
 router = APIRouter(prefix="/corrective")
-pipeline = CorrectivePipeline()
-ORCHESTRATION_STRATEGY = "langgraph-retry-nodes"
+
+if is_mcp_enabled():
+    from ..pipelines.mcp_pipelines import McpCorrectivePipeline
+    pipeline = McpCorrectivePipeline()
+    ORCHESTRATION_STRATEGY = "mcp-crag"
+else:
+    from ..pipelines.corrective import CorrectivePipeline
+    pipeline = CorrectivePipeline()
+    ORCHESTRATION_STRATEGY = "langgraph-retry-nodes"
 
 
 @router.get("/actuator/health")

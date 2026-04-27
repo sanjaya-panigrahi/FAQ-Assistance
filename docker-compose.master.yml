@@ -10,7 +10,7 @@ services:
       NEO4J_AUTH: neo4j/neo4jpass
       NEO4J_server_memory_heap_initial__size: 1g
       NEO4J_server_memory_heap_max__size: 2g
-      NEO4J_dbms_memory_pagecache_size: 512m
+      NEO4J_server_memory_pagecache_size: 512m
       NEO4J_PLUGINS: '["apoc"]'
       NEO4J_dbms_security_procedures_unrestricted: apoc.*
       NEO4J_dbms_security_procedures_allowlist: apoc.*
@@ -40,6 +40,14 @@ services:
       APP_EVENTS_CONSUMER_ENABLED: ${APP_EVENTS_CONSUMER_ENABLED:-false}
       APP_EVENTS_TOPIC: ${APP_EVENTS_TOPIC:-graph.tasks.lifecycle.v1}
       APP_EVENTS_CONSUMER_GROUP_ID: ${APP_EVENTS_CONSUMER_GROUP_ID:-spring-ai-unified-consumer}
+      USE_MCP: ${USE_MCP:-false}
+      MCP_CHROMADB_URL: ${MCP_CHROMADB_URL:-http://mcp-chromadb:8301}
+      MCP_NEO4J_URL: ${MCP_NEO4J_URL:-http://mcp-neo4j:8302}
+      MCP_LLM_GATEWAY_URL: ${MCP_LLM_GATEWAY_URL:-http://mcp-llm-gateway:8303}
+      MCP_WEB_SEARCH_URL: ${MCP_WEB_SEARCH_URL:-http://mcp-web-search:8304}
+      MCP_CACHE_URL: ${MCP_CACHE_URL:-http://mcp-cache:8305}
+      MCP_ANALYTICS_URL: ${MCP_ANALYTICS_URL:-http://mcp-analytics:8306}
+      MCP_API_KEY: ${MCP_API_KEY:-}
     depends_on:
       neo4j-unified:
         condition: service_healthy
@@ -63,6 +71,14 @@ services:
       APP_PORT: 8000
       NEO4J_URI: bolt://neo4j-unified:7687
       REDIS_HOST: redis-cache
+      USE_MCP: ${USE_MCP:-false}
+      MCP_CHROMADB_URL: ${MCP_CHROMADB_URL:-http://mcp-chromadb:8301}
+      MCP_NEO4J_URL: ${MCP_NEO4J_URL:-http://mcp-neo4j:8302}
+      MCP_LLM_GATEWAY_URL: ${MCP_LLM_GATEWAY_URL:-http://mcp-llm-gateway:8303}
+      MCP_WEB_SEARCH_URL: ${MCP_WEB_SEARCH_URL:-http://mcp-web-search:8304}
+      MCP_CACHE_URL: ${MCP_CACHE_URL:-http://mcp-cache:8305}
+      MCP_ANALYTICS_URL: ${MCP_ANALYTICS_URL:-http://mcp-analytics:8306}
+      MCP_API_KEY: ${MCP_API_KEY:-}
     depends_on:
       neo4j-unified:
         condition: service_healthy
@@ -119,6 +135,14 @@ services:
       APP_PORT: 8000
       NEO4J_URI: bolt://neo4j-unified:7687
       REDIS_HOST: redis-cache
+      USE_MCP: ${USE_MCP:-false}
+      MCP_CHROMADB_URL: ${MCP_CHROMADB_URL:-http://mcp-chromadb:8301}
+      MCP_NEO4J_URL: ${MCP_NEO4J_URL:-http://mcp-neo4j:8302}
+      MCP_LLM_GATEWAY_URL: ${MCP_LLM_GATEWAY_URL:-http://mcp-llm-gateway:8303}
+      MCP_WEB_SEARCH_URL: ${MCP_WEB_SEARCH_URL:-http://mcp-web-search:8304}
+      MCP_CACHE_URL: ${MCP_CACHE_URL:-http://mcp-cache:8305}
+      MCP_ANALYTICS_URL: ${MCP_ANALYTICS_URL:-http://mcp-analytics:8306}
+      MCP_API_KEY: ${MCP_API_KEY:-}
     depends_on:
       neo4j-unified:
         condition: service_healthy

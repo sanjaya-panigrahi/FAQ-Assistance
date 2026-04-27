@@ -70,3 +70,21 @@ management:
   zipkin:
     tracing:
       endpoint: ${ZIPKIN_URL:http://zipkin:9411}/api/v2/spans
+
+# MCP Client Configuration (enabled via USE_MCP=true)
+mcp:
+  enabled: ${USE_MCP:false}
+  servers:
+    chromadb:
+      url: ${MCP_CHROMADB_URL:http://mcp-chromadb:8301}
+    neo4j:
+      url: ${MCP_NEO4J_URL:http://mcp-neo4j:8302}
+    llm-gateway:
+      url: ${MCP_LLM_GATEWAY_URL:http://mcp-llm-gateway:8303}
+    web-search:
+      url: ${MCP_WEB_SEARCH_URL:http://mcp-web-search:8304}
+    cache:
+      url: ${MCP_CACHE_URL:http://mcp-cache:8305}
+    analytics:
+      url: ${MCP_ANALYTICS_URL:http://mcp-analytics:8306}
+  api-key: ${MCP_API_KEY:}

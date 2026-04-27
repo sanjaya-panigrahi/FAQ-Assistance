@@ -3,14 +3,21 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 from celery.result import AsyncResult
 
-from ..pipelines.graph import GraphPipeline
+from ..mcp_client import is_mcp_enabled
 from ..security import TokenPayload, get_current_user_optional
 from ..schemas import RagRequest, GraphRagResponse
 from ..tasks import rebuild_index_task
 
 router = APIRouter(prefix="/graph")
-pipeline = GraphPipeline()
-ORCHESTRATION_STRATEGY = "langgraph-graph-workflow"
+
+if is_mcp_enabled():
+    from ..pipelines.mcp_pipelines import McpGraphPipeline
+    pipeline = McpGraphPipeline()
+    ORCHESTRATION_STRATEGY = "mcp-graph"
+else:
+    from ..pipelines.graph import GraphPipeline
+    pipeline = GraphPipeline()
+    ORCHESTRATION_STRATEGY = "langgraph-graph-workflow"
 
 
 @router.get("/actuator/health")
